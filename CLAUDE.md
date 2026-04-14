@@ -1,155 +1,110 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## 项目概览
 
-**技术栈：Rust + Tauri 2 + Vite + Svelte 5**
-- 跨平台桌面应用（macOS、Windows、Linux）
-- 前端：Vite + Svelte 5 + TypeScript
-- 后端：Rust（Cargo workspace 结构）
-- 状态：浏览和播放功能已完成，下载功能开发中
+- 技术栈：Rust + Tauri 2 + Vite + Svelte 5
+- 形态：跨平台桌面应用（macOS / Windows / Linux）
+- 当前重点：专辑浏览、在线播放、当前曲目下载已经接通；批量下载和下载进度还没完成
 
 ## 常用命令
 
 ```bash
-# 安装前端依赖
 npm install
-
-# 开发模式（Vite dev server + Tauri 应用）
-npm run tauri dev
-
-# 仅构建前端
+npm run tauri:dev
 npm run build
+npm run tauri:build
 
-# 生产构建（打包桌面应用）
-npm run tauri build
+cargo check --workspace
+cargo fmt --all
+cargo clippy --workspace --all-targets
 
-# Rust 编译检查（workspace）
-cargo check
-
-# Rust 代码检查
-cargo clippy
-
-# Rust 格式化
-cargo fmt
+# 文档
+cargo doc -p siren_core --no-deps
+cargo doc -p siren-music-download --bin siren-music-download --no-deps --document-private-items
 ```
 
-## 架构
+## 仓库结构
 
-### Tauri 2 标准架构
-
-```
-Cargo workspace（根 Cargo.toml）
-├── src-tauri/               # Tauri 应用 crate
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   ├── capabilities/
+```text
+Cargo workspace
+├── src-tauri/               # Tauri 后端二进制 crate
 │   └── src/
-│       ├── main.rs          # Tauri 入口 + 命令处理
-│       └── player/          # 播放器模块
+│       ├── main.rs          # Tauri command 入口
+│       ├── audio_cache.rs   # 流式播放缓存
+│       ├── theme.rs         # 封面取色
+│       └── player/          # 播放器实现
 └── crates/
     └── siren-core/          # 共享 Rust 核心库
-        ├── Cargo.toml
         └── src/
-            ├── lib.rs       # 库入口
-            ├── api.rs       # API 客户端
-            ├── audio.rs     # 音频处理
-            └── downloader.rs # 下载逻辑
+            ├── api.rs       # 上游 HTTP API 客户端
+            ├── audio.rs     # 音频格式检测 / 保存 / FLAC 标记
+            ├── downloader.rs # 下载流程
+            └── lib.rs       # 对外导出
 ```
 
-**前端（根目录）**：
-- `index.html` → `src/main.ts` → `src/App.svelte`
-- `src/lib/api.ts`：Tauri 命令桥接
-- `src/lib/types.ts`：TypeScript 类型定义
-- `src/lib/components/`：UI 组件
+前端位于仓库根目录：
 
-### 核心库数据流
+- `src/App.svelte`：主界面和状态编排
+- `src/lib/api.ts`：Tauri command bridge
+- `src/lib/types.ts`：前后端共享数据结构的 TS 版本
+- `src/lib/components/`：播放器、专辑卡片、曲目行等组件
 
-```
-前端 invoke('get_albums')
-  → Tauri 命令处理（src-tauri/src/main.rs）
-  → ApiClient::get_albums()（crates/siren-core/src/api.rs）
-  → reqwest 异步请求
-  → JSON 反序列化
-  → 返回 Vec<Album> 给前端
-```
+## 后端 command 清单
 
-### 各模块职责
+`src-tauri/src/main.rs` 当前注册了这些 Tauri command：
 
-**共享核心库（crates/siren-core）**：
+- `get_albums`
+- `get_album_detail`
+- `get_song_detail`
+- `extract_image_theme`
+- `get_default_output_dir`
+- `play_song`
+- `stop_playback`
+- `pause_playback`
+- `resume_playback`
+- `seek_current_playback`
+- `play_next`
+- `play_previous`
+- `get_player_state`
+- `set_playback_volume`
+- `download_song`
+- `clear_audio_cache`
 
-| 模块 | 职责 |
-|---|---|
-| `lib.rs` | 库入口，导出公共 API |
-| `api.rs` | 塞壬唱片 API 的类型化 HTTP 客户端。所有响应格式为 `{"code":0,"msg":"","data":{}}` |
-| `audio.rs` | 魔数字节格式检测、`save_audio()`、纯 Rust FLAC 编码（`flacenc`）、用 `metaflac` 写入 FLAC 元数据 |
-| `downloader.rs` | `download_song()` / `download_album()`：串联 API 调用、字节流传输和音频保存，并提供进度回调 |
+播放器事件：
 
-**Tauri 应用（src-tauri）**：
+- `player-state-changed`
+- `player-progress`
 
-| 模块 | 职责 |
-|---|---|
-| `src/main.rs` | Tauri 应用入口，定义命令、设置窗口、处理前端调用 |
-| `src/player/mod.rs` | 播放器模块入口 |
-| `src/player/controller.rs` | `AudioPlayer` 控制器，管理播放状态、进度、停止 |
-| `src/player/state.rs` | `PlayerState` 结构体（通过 Tauri event 同步到前端） |
-| `src/player/events.rs` | `player-state-changed` / `player-progress` 事件发射 |
-| `src/player/decode.rs` | 音频解码（WAV 用 hound，FLAC/MP3 用 rodio） |
-| `src/player/backend/mod.rs` | `PlaybackBackend` trait，平台后端选择 |
-| `src/player/backend/coreaudio.rs` | macOS CoreAudio 后端（Hog Mode、独占采样率） |
-| `src/player/backend/cpal.rs` | Windows/Linux cpal 后端 |
-
-### 前端技术
-
-- **UI 框架**：Svelte 5 + TypeScript（ runes 状态语法 `$state`）
-- **布局**：三栏布局（专辑列表 | 歌曲列表 | 下载设置）
-- **样式**：亮/暗主题自适应（`prefers-color-scheme`）
-- **API 调用**：`@tauri-apps/api` `invoke()` + 事件监听 `listen()`
-
-### Tauri 命令列表
-
-| 命令 | 说明 |
-|---|---|
-| `get_albums` | 获取专辑列表 |
-| `get_album_detail` | 获取专辑详情 |
-| `get_song_detail` | 获取单曲详情 |
-| `play_song` | 播放指定曲目 |
-| `stop_playback` | 停止播放 |
-| `get_player_state` | 获取当前播放状态 |
-| `get_default_output_dir` | 获取默认下载目录 |
-
-### 音频处理流程
-
-塞壬唱片 API 通过 `song.source_url` 返回 **WAV**（无损 PCM）格式音频。三种输出模式：
-
-- **WAV**：直接写入磁盘，无需转换
-- **FLAC**：使用纯 Rust `flacenc` 库编码，无需外部依赖
-- **MP3**：部分曲目 API 直接返回 MP3，直接写入
-
-FLAC 编码流程：
-1. 读取 WAV 音频数据到内存
-2. 使用 `flacenc::source::MemSource` 包装样本数据
-3. 使用 `flacenc::encode_with_fixed_block_size()` 编码为 FLAC
-4. 使用 `metaflac` 写入标题、艺术家、专辑名及封面图片元数据
-
-WAV 格式不写入标签。
-
-输出路径格式：`<输出目录>/<专辑名（已过滤非法字符）>/<曲目名（已过滤非法字符）>.<扩展名>`
-
-## 实现状态
+## 当前实现状态
 
 ### 已完成
-- ✅ Tauri 2 框架集成（标准 Cargo workspace 结构）
-- ✅ 专辑列表加载和显示
-- ✅ 歌曲列表显示
-- ✅ 前后端通信（Tauri commands + events）
-- ✅ UI 界面（三栏布局，亮/暗自适应）
-- ✅ 共享核心库集成
-- ✅ 在线播放（macOS CoreAudio 优先，Windows/Linux cpal）
 
-### 待实现
-- ⏳ 下载功能（调用 `download_song`）
-- ⏳ 下载进度实时更新
-- ⏳ 错误处理和用户提示
-- ⏳ 文件选择器集成
+- 专辑列表和曲目详情加载
+- Tauri command + event 通信链路
+- 在线播放、暂停、恢复、拖动进度
+- 上一首 / 下一首
+- 当前专辑上下文播放
+- 底部播放器、歌词面板、播放队列面板
+- 系统媒体会话同步
+- 封面主题色提取
+- 流式播放缓存与缓存清理
+- 当前播放曲目单曲下载
+- FLAC 元数据和封面写入
+
+### 未完成
+
+- 工具栏多选批量下载
+- 下载进度 UI
+- 更完整的错误提示和任务状态管理
+
+## 代码层约定
+
+- 后端“端点”指的是 Tauri command，不是 HTTP server route
+- 共享数据结构优先在 Rust 侧定义，再让前端 `types.ts` 保持形状一致
+- 如果改了 command 参数、返回值或事件载荷，要同步更新：
+  - `src/lib/api.ts`
+  - `src/lib/types.ts`
+  - `README.md`
+  - `src-tauri` / `siren_core` 中对应的 rustdoc

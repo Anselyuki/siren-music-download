@@ -15,8 +15,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@humanspeak/svelte-motion": "^0.2.0",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.7.0"
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "overlayscrollbars": "^2.15.1",
+    "overlayscrollbars-svelte": "^0.5.5"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",

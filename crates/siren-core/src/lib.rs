@@ -1,15 +1,22 @@
-//! Shared core library for Siren Music Download
+//! 塞壬音乐下载器共享核心库。
 //!
-//! This crate contains all platform-independent logic:
-//! - API client for Monster Siren Records
-//! - Audio processing (WAV/FLAC/MP3)
-//! - Download logic and metadata tagging
+//! 这个 crate 提供 Tauri 桌面端复用的、与平台无关的后端能力：
+//!
+//! - [`api`]：对 Monster Siren 公开 HTTP 接口的强类型访问。
+//! - [`audio`]：音频格式识别、文件写入和 FLAC 标签处理工具。
+//! - [`downloader`]：带进度回调的高层下载编排逻辑。
+//!
+//! # 生成 rustdoc
+//!
+//! ```bash
+//! cargo doc -p siren_core --no-deps
+//! ```
 
 pub mod api;
 pub mod audio;
 pub mod downloader;
 
-// Re-export public API for convenience
-pub use api::{ApiClient, Album, AlbumDetail, SongDetail, SongEntry};
+// 重新导出公共 API，便于上层直接使用
+pub use api::{Album, AlbumDetail, ApiClient, SongDetail, SongEntry};
 pub use audio::{save_audio, tag_flac, AudioFormat, OutputFormat};
 pub use downloader::{download_song, DownloadProgress, MetaOverride};

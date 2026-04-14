@@ -1,31 +1,30 @@
-use crate::player::decode::DecodedAudio;
+use crate::player::stream::{AudioFormat, SampleBuffer};
 use anyhow::Result;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 pub trait PlaybackBackend: Send {
-    fn play(
+    fn negotiate_output_format(&self, source_format: AudioFormat) -> Result<AudioFormat>;
+
+    fn play_stream(
         &mut self,
-        audio: DecodedAudio,
+        format: AudioFormat,
+        samples: SampleBuffer,
         stop_flag: Arc<AtomicBool>,
+        volume: Arc<Mutex<f64>>,
         progress_callback: Arc<dyn Fn(f64, f64) + Send + Sync>,
         finish_callback: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<()>;
 
+    fn pause(&mut self) -> Result<()>;
+
+    fn resume(&mut self) -> Result<()>;
+
     fn stop(&mut self) -> Result<()>;
 }
 
-#[cfg(target_os = "macos")]
-pub mod coreaudio;
-#[cfg(not(target_os = "macos"))]
 pub mod cpal;
 
-#[cfg(target_os = "macos")]
-pub fn create_backend() -> Result<Box<dyn PlaybackBackend>> {
-    Ok(Box::new(coreaudio::CoreAudioBackend::new()?))
-}
-
-#[cfg(not(target_os = "macos"))]
 pub fn create_backend() -> Result<Box<dyn PlaybackBackend>> {
     Ok(Box::new(cpal::CpalBackend::new()?))
 }

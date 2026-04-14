@@ -1,11 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCached, setCached } from './cache';
-import type { Album, AlbumDetail, SongDetail, PlayerState } from './types';
+import type { Album, AlbumDetail, SongDetail, ThemePalette, PlayerState, PlaybackContext } from './types';
+import type { OutputFormat } from './types';
 
 // Cache key prefixes for different API endpoints
 const CACHE_KEY_ALBUM_DETAIL = 'album_detail:';
 const CACHE_KEY_SONG_DETAIL = 'song_detail:';
+const CACHE_KEY_SONG_LYRICS = 'song_lyrics:';
+const CACHE_KEY_IMAGE_THEME = 'image_theme:';
 
 /**
  * Get albums list (no caching - always fetch fresh data).
@@ -43,10 +46,32 @@ export async function getSongDetail(songCid: string): Promise<SongDetail> {
 }
 
 /**
+ * Get song lyric text with caching (6h TTL).
+ */
+export async function getSongLyrics(songCid: string): Promise<string | null> {
+  const cacheKey = `${CACHE_KEY_SONG_LYRICS}${songCid}`;
+  const cached = getCached<{ text: string | null }>(cacheKey);
+  if (cached) {
+    return cached.text;
+  }
+  const data = await invoke<string | null>('get_song_lyrics', { cid: songCid });
+  setCached(cacheKey, { text: data });
+  return data;
+}
+
+/**
  * Play a song (no caching).
  */
-export async function playSong(songCid: string, coverUrl?: string): Promise<number> {
-  return invoke('play_song', { songCid, coverUrl: coverUrl ?? null });
+export async function playSong(
+  songCid: string,
+  coverUrl?: string,
+  playbackContext?: PlaybackContext,
+): Promise<number> {
+  return invoke('play_song', {
+    songCid,
+    coverUrl: coverUrl ?? null,
+    playbackContext: playbackContext ?? null,
+  });
 }
 
 /**
@@ -57,10 +82,52 @@ export async function stopPlayback(): Promise<void> {
 }
 
 /**
+ * Pause playback.
+ */
+export async function pausePlayback(): Promise<void> {
+  return invoke('pause_playback');
+}
+
+/**
+ * Resume playback.
+ */
+export async function resumePlayback(): Promise<void> {
+  return invoke('resume_playback');
+}
+
+/**
+ * Seek current playback to target position in seconds.
+ */
+export async function seekCurrentPlayback(positionSecs: number): Promise<number> {
+  return invoke('seek_current_playback', { positionSecs });
+}
+
+/**
+ * Play next track in current playback context.
+ */
+export async function playNext(): Promise<number> {
+  return invoke('play_next');
+}
+
+/**
+ * Play previous track in current playback context.
+ */
+export async function playPrevious(): Promise<number> {
+  return invoke('play_previous');
+}
+
+/**
  * Get current player state (no caching).
  */
 export async function getPlayerState(): Promise<PlayerState> {
   return invoke('get_player_state');
+}
+
+/**
+ * Update current playback volume, clamped to 0..1.
+ */
+export async function setPlaybackVolume(volume: number): Promise<number> {
+  return invoke('set_playback_volume', { volume });
 }
 
 /**
@@ -78,4 +145,43 @@ export async function selectDirectory(defaultPath?: string): Promise<string | nu
     directory: true,
     defaultPath,
   });
+}
+
+/**
+ * Clear audio cache stored by the Tauri backend.
+ */
+export async function clearAudioCache(): Promise<number> {
+  return invoke('clear_audio_cache');
+}
+
+/**
+ * Download a single song into the selected output directory.
+ */
+export async function downloadSong(
+  songCid: string,
+  outputDir: string,
+  format: OutputFormat,
+  downloadLyrics: boolean,
+): Promise<string> {
+  return invoke('download_song', {
+    songCid,
+    outputDir,
+    format,
+    downloadLyrics,
+  });
+}
+
+/**
+ * Extract a theme palette from artwork and cache it for reuse.
+ */
+export async function extractImageTheme(imageUrl: string): Promise<ThemePalette> {
+  const cacheKey = `${CACHE_KEY_IMAGE_THEME}${imageUrl}`;
+  const cached = getCached<ThemePalette>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const data = await invoke<ThemePalette>('extract_image_theme', { imageUrl });
+  setCached(cacheKey, data);
+  return data;
 }

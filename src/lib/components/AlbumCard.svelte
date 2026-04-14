@@ -1,26 +1,80 @@
 <script lang="ts">
+  import { motion } from '@humanspeak/svelte-motion';
+  import { motionStyles } from '$lib/actions/motionStyles';
   import type { Album } from '$lib/types';
   import { lazyLoad } from '$lib/lazyLoad';
 
   interface Props {
     album: Album;
     selected?: boolean;
+    reducedMotion?: boolean;
     onclick?: () => void;
   }
 
-  let { album, selected = false, onclick }: Props = $props();
+  let { album, selected = false, reducedMotion = false, onclick }: Props = $props();
+
+  let isHovered = $state(false);
+  let isFocused = $state(false);
+
+  const motionTransition = $derived.by(() => ({
+    duration: reducedMotion ? 0 : 0.16,
+    ease: 'easeOut',
+  } as const));
+
+  const showCoverLift = $derived.by(() => isHovered || isFocused);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="album-card"
-  class:selected
+<motion.div
+  class={`album-card${selected ? ' selected' : ''}`}
   role="button"
   tabindex="0"
+  animate={selected
+    ? {
+        backgroundColor: 'var(--accent-light)',
+        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0.12)',
+        y: 0,
+      }
+    : {
+        backgroundColor: 'rgba(255, 255, 255, 0)',
+        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0)',
+        y: 0,
+      }}
+  whileHover={selected
+    ? (reducedMotion ? {} : { y: -1 })
+    : {
+        backgroundColor: 'var(--hover-bg-elevated)',
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+        ...(reducedMotion ? {} : { y: -1 }),
+      }}
+  whileFocus={selected
+    ? (reducedMotion ? {} : { y: -1 })
+    : {
+        backgroundColor: 'var(--hover-bg-elevated)',
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+        ...(reducedMotion ? {} : { y: -1 }),
+      }}
+  whileTap={reducedMotion ? undefined : { scale: 0.99, y: 0 }}
+  transition={motionTransition}
   onclick={onclick}
+  onmouseenter={() => { isHovered = true; }}
+  onmouseleave={() => { isHovered = false; }}
+  onfocusin={() => { isFocused = true; }}
+  onfocusout={() => { isFocused = false; }}
 >
-  <div class="album-cover-wrapper" use:lazyLoad={{ rootMargin: '150px' }} data-src={album.coverUrl}>
+  <div
+    class="album-cover-wrapper"
+    use:lazyLoad={{ rootMargin: '150px', reducedMotion }}
+    use:motionStyles={{
+      animate: {
+        boxShadow: showCoverLift ? '0 8px 18px rgba(var(--accent-rgb), 0.16)' : '0 0 0 rgba(var(--accent-rgb), 0)',
+      },
+      transition: motionTransition,
+      reducedMotion,
+    }}
+    data-src={album.coverUrl}
+  >
     <div class="album-cover-placeholder">♪</div>
     <img class="album-cover-img" alt={album.name} />
   </div>
@@ -28,31 +82,29 @@
     <div class="album-name">{album.name}</div>
     <div class="album-artists">{(album.artists || []).join(', ')}</div>
   </div>
-</div>
+</motion.div>
 
 <style>
-  .album-card {
+  :global(.album-card) {
     background: transparent;
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 4px;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     gap: 12px;
+    outline: none;
+    box-shadow: inset 0 0 0 1px transparent;
   }
 
-  .album-card:hover {
-    background: var(--hover-bg-elevated);
-    transform: scale(1.02);
+  :global(.album-card:focus-visible) {
+    box-shadow:
+      inset 0 0 0 1px rgba(var(--accent-rgb), 0.18),
+      0 0 0 4px rgba(var(--accent-rgb), 0.08);
   }
 
-  .album-card.selected {
-    background: var(--accent-light);
-  }
-
-  .album-card.selected .album-name {
+  :global(.album-card.selected) .album-name {
     color: var(--accent);
   }
 
@@ -67,17 +119,13 @@
     justify-content: center;
     position: relative;
     overflow: hidden;
-    transition: background 0.3s ease;
+    box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
   }
 
   .album-cover-placeholder {
     color: var(--text-tertiary);
     font-size: 20px;
-    transition: opacity 0.3s ease;
-  }
-
-  :global(.album-cover-wrapper.loaded) .album-cover-placeholder {
-    opacity: 0;
+    opacity: 1;
   }
 
   .album-cover-img {
@@ -87,13 +135,10 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
     border-radius: 8px;
     opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  :global(.album-cover-wrapper.loaded) .album-cover-img {
-    opacity: 1;
+    transform: scale(1.04);
   }
 
   .album-info {
@@ -109,7 +154,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: color 0.2s;
   }
 
   .album-artists {

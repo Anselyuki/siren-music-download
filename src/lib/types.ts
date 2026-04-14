@@ -11,6 +11,18 @@ export interface SongEntry {
   artists: string[];
 }
 
+export interface PlaybackQueueEntry {
+  cid: string;
+  name: string;
+  artists: string[];
+  coverUrl: string | null;
+}
+
+export interface PlaybackContext {
+  entries: PlaybackQueueEntry[];
+  currentIndex: number;
+}
+
 export interface SongDetail {
   cid: string;
   name: string;
@@ -33,6 +45,13 @@ export interface AlbumDetail {
   songs: SongEntry[];
 }
 
+export interface ThemePalette {
+  accentHex: string;
+  accentHoverHex: string;
+  accentRgb: [number, number, number];
+  accentHoverRgb: [number, number, number];
+}
+
 export type OutputFormat = 'flac' | 'wav' | 'mp3';
 
 export interface PlayerState {
@@ -41,7 +60,11 @@ export interface PlayerState {
   artists: string[];
   coverUrl: string | null;
   isPlaying: boolean;
+  isPaused: boolean;
   isLoading: boolean;
+  hasPrevious: boolean;
+  hasNext: boolean;
   progress: number;
   duration: number;
+  volume: number;
 }

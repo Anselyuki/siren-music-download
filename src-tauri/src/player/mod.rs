@@ -1,9 +1,9 @@
 pub mod backend;
 pub mod controller;
-pub mod decode;
 pub mod events;
+pub mod media;
 pub mod state;
+pub mod stream;
 
-pub use controller::AudioPlayer;
-pub use decode::decode_audio;
+pub use controller::{AudioPlayer, PlaybackContext, PlaybackQueueEntry};
 pub use state::PlayerState;
