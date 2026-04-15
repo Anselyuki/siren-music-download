@@ -20,12 +20,15 @@ jobs:
           - name: macOS Intel
             runner: macos-15-intel
             target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
           - name: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
           - name: Windows x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
 
     steps:
       - name: Checkout repository
@@ -57,7 +60,7 @@ jobs:
         with:
           projectPath: .
           tauriScript: npx tauri
-          args: --target ${{ matrix.target }}
+          args: ${{ matrix.args }}
           includeDebug: false
           includeUpdaterJson: false
 
@@ -78,7 +81,7 @@ jobs:
         with:
           projectPath: .
           tauriScript: npx tauri
-          args: --target ${{ matrix.target }}
+          args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Siren Music Download ${{ github.ref_name }}
           releaseBody: Automated desktop build artifacts for macOS and Windows.
