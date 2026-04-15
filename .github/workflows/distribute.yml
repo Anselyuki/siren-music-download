@@ -2,6 +2,11 @@ name: Distribute desktop builds
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional tag name for publishing a GitHub Release, for example v0.1.0
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -21,14 +26,17 @@ jobs:
             runner: macos-15-intel
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
+            artifact_glob: target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
+            artifact_glob: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - name: Windows x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc --bundles nsis
+            artifact_glob: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
 
     steps:
       - name: Checkout repository
@@ -53,7 +61,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build workflow artifacts
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,16 +73,16 @@ jobs:
           includeUpdaterJson: false
 
       - name: Upload workflow artifacts
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.target }}-bundle
-          path: target/${{ matrix.target }}/release/bundle/**
+          name: ${{ matrix.target }}-installer
+          path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
           compression-level: 0
 
       - name: Build and upload release assets
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,11 +90,12 @@ jobs:
           projectPath: .
           tauriScript: npx tauri
           args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: Siren Music Download ${{ github.ref_name }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.release_tag }}
+          releaseCommitish: ${{ github.sha }}
+          releaseName: Siren Music Download ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.release_tag }}
           releaseBody: Automated desktop build artifacts for macOS and Windows.
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_type == 'tag' && github.ref_name || github.event.inputs.release_tag, '-') }}
           generateReleaseNotes: true
           includeDebug: false
           includeUpdaterJson: false
