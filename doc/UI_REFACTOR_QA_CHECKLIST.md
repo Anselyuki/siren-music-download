@@ -36,3 +36,12 @@
 - [ ] 主工作区保持干净，无大面积玻璃化
 - [ ] Apple 化排版层级正常
 - [ ] reduced-motion 正常
+
+## Completion Notes
+
+- Refactor complete date: 2026-04-17
+- Final verification commands passed:
+  - `npm run check`
+  - `npm run check:cargo`
+- Remaining follow-ups:
+  - `cargo check` 仍有一个既有 warning：`src-tauri/src/notification/desktop.rs` 里的 `Manager` 未使用
