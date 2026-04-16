@@ -1247,8 +1247,8 @@
           if (!downloadManager) return;
           const progress = event.payload;
 
-          // Update speed map
-          taskSpeedMap.set(progress.taskId, progress.speedBytesPerSec);
+          // Update speed map (reassign to trigger Svelte 5 reactivity)
+          taskSpeedMap = new Map(taskSpeedMap).set(progress.taskId, progress.speedBytesPerSec);
 
           const jobIdx = downloadManager.jobs.findIndex((j) => j.id === progress.jobId);
           if (jobIdx < 0) return;
