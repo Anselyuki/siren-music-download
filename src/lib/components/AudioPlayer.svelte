@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getImageDataUrl } from '$lib/api';
   type RepeatMode = 'all' | 'one';
   type SongDownloadState = 'idle' | 'creating' | 'queued' | 'running';
 
@@ -66,6 +67,8 @@
   let seekPreview = $state<number | null>(null);
   let draggingSeek = $state(false);
   let activeCid = $state<string | null>(null);
+  let resolvedCoverUrl = $state<string | null>(null);
+  let coverRequestSeq = 0;
 
   function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
@@ -125,6 +128,28 @@
       seekPreview = null;
       draggingSeek = false;
     }
+  });
+
+  $effect(() => {
+    const coverUrl = song?.coverUrl ?? null;
+    const requestSeq = ++coverRequestSeq;
+
+    if (!coverUrl) {
+      resolvedCoverUrl = null;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const dataUrl = await getImageDataUrl(coverUrl);
+        if (requestSeq !== coverRequestSeq) return;
+        resolvedCoverUrl = dataUrl;
+      } catch (error) {
+        if (requestSeq !== coverRequestSeq) return;
+        resolvedCoverUrl = null;
+        console.warn('[WARN] Failed to resolve player cover image:', error);
+      }
+    })();
   });
 
   $effect(() => {
@@ -272,8 +297,8 @@
     <div class="center-panel">
       <div class="playback-stage">
         <div class="track-info">
-          {#if song.coverUrl}
-            <img src={song.coverUrl} alt={`${song.name} 封面`} class="cover" />
+          {#if resolvedCoverUrl}
+            <img src={resolvedCoverUrl} alt={`${song.name} 封面`} class="cover" />
           {:else}
             <div class="cover fallback" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M12 3v10.5a4 4 0 1 0 2 3.5V7h4V3h-6z"/></svg>

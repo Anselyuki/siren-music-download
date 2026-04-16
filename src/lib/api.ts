@@ -13,6 +13,7 @@ const CACHE_KEY_ALBUM_DETAIL = 'album_detail:';
 const CACHE_KEY_SONG_DETAIL = 'song_detail:';
 const CACHE_KEY_SONG_LYRICS = 'song_lyrics:';
 const CACHE_KEY_IMAGE_THEME = 'image_theme:';
+const CACHE_KEY_IMAGE_DATA_URL = 'image_data_url:';
 
 /**
  * Get albums list (no caching - always fetch fresh data).
@@ -186,6 +187,21 @@ export async function extractImageTheme(imageUrl: string): Promise<ThemePalette>
   }
 
   const data = await invoke<ThemePalette>('extract_image_theme', { imageUrl });
+  setCached(cacheKey, data);
+  return data;
+}
+
+/**
+ * Resolve a remote image URL through the Tauri backend into a stable data URL.
+ */
+export async function getImageDataUrl(imageUrl: string): Promise<string> {
+  const cacheKey = `${CACHE_KEY_IMAGE_DATA_URL}${imageUrl}`;
+  const cached = getCached<string>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const data = await invoke<string>('get_image_data_url', { imageUrl });
   setCached(cacheKey, data);
   return data;
 }

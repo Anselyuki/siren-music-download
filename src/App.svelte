@@ -21,6 +21,7 @@
     getPlayerState,
     clearAudioCache,
     extractImageTheme,
+    getImageDataUrl,
     getSongLyrics,
     createDownloadJob,
     listDownloadJobs,
@@ -159,6 +160,7 @@
   let playingCid = $state<string | null>(null);
   let albumRequestSeq = $state(0);
   let themeRequestSeq = 0;
+  let artworkRequestSeq = 0;
   let lyricRequestSeq = 0;
   let playbackEndRequestSeq = 0;
   let lastPlaybackSnapshot = {
@@ -172,6 +174,7 @@
     null,
   );
   let albumStageEl = $state<HTMLElement | null>(null);
+  let selectedAlbumArtworkUrl = $state<string | null>(null);
   let isMacOS = $state(false);
   let detailSkeletonTimer: ReturnType<typeof setTimeout> | null = null;
   let albumStageAspectRatio = $state(DEFAULT_ALBUM_STAGE_ASPECT_RATIO);
@@ -302,7 +305,17 @@
   async function preloadAlbumArtwork(
     album: AlbumDetail,
   ): Promise<number | null> {
-    const meta = await preloadImage(album.coverDeUrl ?? album.coverUrl ?? null);
+    const sourceUrl = album.coverDeUrl ?? album.coverUrl ?? null;
+    if (!sourceUrl) return null;
+
+    let resolvedUrl = sourceUrl;
+    try {
+      resolvedUrl = await getImageDataUrl(sourceUrl);
+    } catch {
+      resolvedUrl = sourceUrl;
+    }
+
+    const meta = await preloadImage(resolvedUrl);
     return meta?.aspectRatio ?? null;
   }
 
@@ -1305,6 +1318,28 @@
         if (paletteRequestSeq !== themeRequestSeq) return;
         applyThemePalette(DEFAULT_THEME_PALETTE);
         console.error("[ERROR] Failed to extract album theme:", e);
+      }
+    })();
+  });
+
+  $effect(() => {
+    const sourceUrl = selectedAlbum?.coverDeUrl ?? selectedAlbum?.coverUrl ?? null;
+    const requestSeq = ++artworkRequestSeq;
+
+    if (!sourceUrl) {
+      selectedAlbumArtworkUrl = null;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const dataUrl = await getImageDataUrl(sourceUrl);
+        if (requestSeq !== artworkRequestSeq) return;
+        selectedAlbumArtworkUrl = dataUrl;
+      } catch (error) {
+        if (requestSeq !== artworkRequestSeq) return;
+        selectedAlbumArtworkUrl = null;
+        console.warn("[WARN] Failed to resolve album artwork:", error);
       }
     })();
   });
@@ -2402,7 +2437,7 @@
                   <div class="album-stage-media-content">
                     <img
                       class="album-stage-image"
-                      src={selectedAlbum.coverDeUrl ?? selectedAlbum.coverUrl}
+                      src={selectedAlbumArtworkUrl ?? undefined}
                       alt="{selectedAlbum.name} banner"
                       loading="eager"
                       style:opacity={albumStageImageOpacity}

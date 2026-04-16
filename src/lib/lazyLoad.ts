@@ -1,4 +1,5 @@
 import { animate } from '@humanspeak/svelte-motion';
+import { getImageDataUrl } from './api';
 
 export function lazyLoad(
   node: HTMLElement,
@@ -6,6 +7,7 @@ export function lazyLoad(
 ) {
   let imageAnimation: { cancel?: () => void; stop?: () => void } | null = null;
   let placeholderAnimation: { cancel?: () => void; stop?: () => void } | null = null;
+  let loadSeq = 0;
 
   const stopAnimations = () => {
     imageAnimation?.cancel?.();
@@ -34,33 +36,51 @@ export function lazyLoad(
           return;
         }
 
-        img.style.opacity = '0';
-        img.style.transform = reducedMotion ? 'scale(1)' : 'scale(1.04)';
-        img.src = src;
-        img.onload = () => {
-          stopAnimations();
-          if (placeholder) {
-            placeholderAnimation = animate(
-              placeholder,
-              { opacity: 0 },
-              { duration: reducedMotion ? 0 : 0.18, ease: 'easeOut' }
-            );
+        const seq = ++loadSeq;
+
+        void (async () => {
+          try {
+            const resolvedSrc = await getImageDataUrl(src);
+            if (seq !== loadSeq) return;
+
+            img.style.opacity = '0';
+            img.style.transform = reducedMotion ? 'scale(1)' : 'scale(1.04)';
+            img.onload = () => {
+              stopAnimations();
+              if (placeholder) {
+                placeholderAnimation = animate(
+                  placeholder,
+                  { opacity: 0 },
+                  { duration: reducedMotion ? 0 : 0.18, ease: 'easeOut' }
+                );
+              }
+              imageAnimation = animate(
+                img,
+                { opacity: 1, scale: 1 },
+                { duration: reducedMotion ? 0 : 0.2, ease: 'easeOut' }
+              );
+            };
+            img.onerror = () => {
+              stopAnimations();
+              if (placeholder) {
+                placeholder.style.opacity = '1';
+              }
+              console.warn(`Failed to load cover: ${src}`);
+            };
+            img.src = resolvedSrc;
+          } catch (error) {
+            stopAnimations();
+            if (placeholder) {
+              placeholder.style.opacity = '1';
+            }
+            console.warn(`Failed to resolve cover: ${src}`, error);
+          } finally {
+            if (seq === loadSeq) {
+              node.removeAttribute('data-src');
+              observer.unobserve(node);
+            }
           }
-          imageAnimation = animate(
-            img,
-            { opacity: 1, scale: 1 },
-            { duration: reducedMotion ? 0 : 0.2, ease: 'easeOut' }
-          );
-        };
-        img.onerror = () => {
-          stopAnimations();
-          if (placeholder) {
-            placeholder.style.opacity = '1';
-          }
-          console.warn(`Failed to load cover: ${src}`);
-        };
-        node.removeAttribute('data-src');
-        observer.unobserve(node);
+        })();
       });
     },
     { rootMargin, threshold: 0 }
