@@ -63,6 +63,8 @@
   import SettingsSheet from "$lib/components/app/SettingsSheet.svelte";
   import DownloadTasksSheet from "$lib/components/app/DownloadTasksSheet.svelte";
   import StatusToastHost from "$lib/components/app/StatusToastHost.svelte";
+  import AlbumSidebar from "$lib/components/app/AlbumSidebar.svelte";
+  import AlbumWorkspace from "$lib/components/app/AlbumWorkspace.svelte";
 
   // Minimum display time (ms) to prevent animation flash on fast loads
   const MIN_DISPLAY_MS = 260;
@@ -2241,34 +2243,14 @@
         aria-hidden="true"
       ></div>
     {/if}
-    <h2 class="section-title">专辑</h2>
-    {#if loadingAlbums}
-      <div class="loading">
-        <span>正在加载专辑...</span><MotionSpinner
-          className="inline-loading-spinner"
-          reducedMotion={prefersReducedMotion}
-        />
-      </div>
-    {:else if errorMsg && albums.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">⚠️</div>
-        <div class="empty-text">加载失败</div>
-        <div class="empty-text" style="margin-top: 8px; font-size: 12px;">
-          {errorMsg}
-        </div>
-      </div>
-    {:else}
-      <div class="album-list">
-        {#each albums as album}
-          <AlbumCard
-            {album}
-            selected={selectedAlbumCid === album.cid}
-            reducedMotion={prefersReducedMotion}
-            onclick={() => handleSelectAlbum(album)}
-          />
-        {/each}
-      </div>
-    {/if}
+    <AlbumSidebar
+      {albums}
+      {selectedAlbumCid}
+      reducedMotion={prefersReducedMotion}
+      {loadingAlbums}
+      {errorMsg}
+      onSelect={handleSelectAlbum}
+    />
   </OverlayScrollbarsComponent>
 
   <section class="main-region">
@@ -2409,9 +2391,15 @@
     {/if}
 
     <!-- 歌曲列表内容区 -->
+    <AlbumWorkspace
+      {currentSong}
+      {loadingDetail}
+      {selectedAlbum}
+    >
+      {#snippet children()}
     <OverlayScrollbarsComponent
-      element="main"
-      class={`content${currentSong ? " content-with-player" : ""}${loadingDetail && selectedAlbum ? " content-pending" : ""}`}
+      element="div"
+      class="h-full"
       data-overlayscrollbars-initialize
       bind:this={contentScrollbar}
       options={overlayScrollbarOptions}
@@ -2774,6 +2762,8 @@
         {/if}
       </AnimatePresence>
     </OverlayScrollbarsComponent>
+      {/snippet}
+    </AlbumWorkspace>
 
     <AnimatePresence>
       {#if currentSong}
