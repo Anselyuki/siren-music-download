@@ -18,7 +18,10 @@
 - 已完成：当前播放曲目和专辑歌曲列表中的单曲下载，支持 `wav` / `flac` / `mp3`
 - 已完成：歌词文本拉取；下载时可选同目录生成同名 `.lrc`
 - 已完成：FLAC 输出写入标题、艺术家、专辑名、专辑艺术家、曲序和封面元数据
-- 未完成：批量下载与下载进度 UI 仍未接通，错误提示和任务状态管理也还需要补全
+- 已完成（M1）：下载任务领域模型、DownloadService、单曲任务化、新 commands / events
+- 已完成（M2）：整专下载、专辑封面落盘、下载进度事件推送、前端总进度展示、专辑页批量下载入口、重复创建保护
+- 已完成（M3）：任务取消、重试、历史清理、结构化错误码与详情、独立下载面板 UI
+- 未完成（M4）：系统通知集成
 
 ## 依赖
 
@@ -57,46 +60,19 @@ cargo clippy --workspace --all-targets
 2. 左侧边栏选择专辑，主区域会展示封面横幅、简介和曲目列表。
 3. 单击曲目可开始播放，底部播放器支持暂停、继续、拖动进度、上一首、下一首、乱序和循环模式切换。
 4. 底部播放器可展开歌词面板和当前播放队列；队列中的曲目可直接点击切换播放。
-5. 右上角“下载设置”面板可选择输出格式、下载目录、是否生成同名 `.lrc` 歌词文件，以及清理播放缓存。
+5. 右上角设置图标可打开下载设置面板，选择输出格式、下载目录、是否生成同名 `.lrc` 歌词文件。
 6. 当前播放曲目和专辑曲目行都可以直接触发单曲下载。
-7. 当前还没有批量下载入口和下载进度面板。
+7. 专辑详情页横幅区域有”下载整张专辑”按钮，可一键创建整专下载任务。
+8. 工具栏下载图标可打开独立下载面板，展示任务列表、进度、取消/重试按钮，以及”清理历史”功能。
 
 ## 已知限制
 
 - 数据完全依赖塞壬唱片公开 API，若上游接口结构或资源地址变化，应用也需要同步调整
-- 当前下载能力以“单曲下载”为主，批量下载和下载进度面板还没有接上完整 UI
 - 首次播放、拖动进度或切歌时会进行音频拉取与缓存预热，网络较慢时体感会受影响
 
-## 后端 API 概览
+## 后端 API
 
-前端通过 `@tauri-apps/api/core` 的 `invoke()` 调用 Rust 后端。当前暴露的 command 如下：
-
-| Command | 参数 | 返回 | 说明 |
-| --- | --- | --- | --- |
-| `get_albums` | 无 | `Album[]` | 获取全部专辑列表 |
-| `get_album_detail` | `albumCid: string` | `AlbumDetail` | 获取专辑详情和曲目列表 |
-| `get_song_detail` | `cid: string` | `SongDetail` | 获取单曲详情与 `sourceUrl` |
-| `get_song_lyrics` | `cid: string` | `string \| null` | 获取歌曲歌词原文，没有歌词时返回 `null` |
-| `extract_image_theme` | `imageUrl: string` | `ThemePalette` | 从封面提取动态主题色 |
-| `get_default_output_dir` | 无 | `string` | 获取默认下载目录 |
-| `play_song` | `songCid`, `coverUrl?`, `playbackContext?` | `number` | 开始播放并建立播放上下文，返回时长秒数 |
-| `pause_playback` | 无 | `void` | 暂停播放 |
-| `resume_playback` | 无 | `void` | 恢复播放 |
-| `seek_current_playback` | `positionSecs: number` | `number` | 跳转当前播放位置，返回时长秒数 |
-| `play_next` | 无 | `number` | 播放当前上下文中的下一首 |
-| `play_previous` | 无 | `number` | 播放当前上下文中的上一首 |
-| `stop_playback` | 无 | `void` | 停止播放并重置状态 |
-| `get_player_state` | 无 | `PlayerState` | 获取当前播放器状态快照 |
-| `set_playback_volume` | `volume: number` | `number` | 设置音量，后端会钳制到 `0.0..=1.0` |
-| `download_song` | `songCid`, `outputDir`, `format`, `downloadLyrics` | `string` | 下载单曲并返回输出路径 |
-| `clear_audio_cache` | 无 | `number` | 清空播放缓存并返回删除文件数 |
-
-后端会发出两个播放器事件：
-
-| 事件名 | 载荷 | 说明 |
-| --- | --- | --- |
-| `player-state-changed` | `PlayerState` | 播放状态、队列能力、音量等发生变化时触发 |
-| `player-progress` | `PlayerState` | 播放进度推进时持续触发 |
+前端通过 `@tauri-apps/api/core` 的 `invoke()` 调用 Rust 后端，完整的 command / event 契约、共享类型定义和状态机规则见 [doc/BACKEND_API_PLAN.md](doc/BACKEND_API_PLAN.md)。
 
 ## 上游 HTTP API
 
@@ -127,6 +103,10 @@ cargo doc -p siren-music-download --bin siren-music-download --no-deps --documen
 ├── Cargo.toml
 ├── README.md
 ├── UI_DESIGN.md
+├── doc/
+│   ├── BACKEND_API_CONTRACT.md  # 下载任务系统 API 契约（唯一事实来源）
+│   ├── BACKEND_API_PRD.md       # 下载任务系统产品需求
+│   └── BACKEND_API_PLAN.md      # 下载任务系统实施计划
 ├── src/
 │   ├── App.svelte
 │   ├── app.css
@@ -143,17 +123,27 @@ cargo doc -p siren-music-download --bin siren-music-download --no-deps --documen
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   └── src/
-│       ├── main.rs
-│       ├── audio_cache.rs
-│       ├── theme.rs
-│       └── player/
+│       ├── main.rs          # Tauri command 入口
+│       ├── app_state.rs     # 应用状态组合
+│       ├── audio_cache.rs   # 流式播放缓存
+│       ├── theme.rs         # 封面取色
+│       ├── commands/       # Tauri command 包装层
+│       ├── downloads/       # 下载桥接层与事件
+│       └── player/          # 播放器实现
 └── crates/
     └── siren-core/
         └── src/
             ├── lib.rs
             ├── api.rs
             ├── audio.rs
-            └── downloader.rs
+            ├── downloader.rs
+            └── download/    # 下载领域模型与执行
+                ├── mod.rs
+                ├── model.rs
+                ├── planner.rs
+                ├── service.rs
+                ├── worker.rs
+                └── error.rs
 ```
 
 ## 许可证

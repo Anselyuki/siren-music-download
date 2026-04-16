@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 - 技术栈：Rust + Tauri 2 + Vite + Svelte 5
 - 形态：跨平台桌面应用（macOS / Windows / Linux）
-- 当前重点：专辑浏览、在线播放、歌词/队列面板、当前曲目下载已经接通；批量下载和下载进度还没完成
+- 当前重点：M1–M3 下载任务系统已完成，下一步是 M4 系统通知集成
 
 ## 常用命令
 
@@ -32,16 +32,33 @@ Cargo workspace
 ├── src-tauri/               # Tauri 后端二进制 crate
 │   └── src/
 │       ├── main.rs          # Tauri command 入口
+│       ├── app_state.rs     # 应用状态组合
 │       ├── audio_cache.rs   # 流式播放缓存
 │       ├── theme.rs         # 封面取色
+│       ├── commands/        # Tauri command 包装层
+│       │   ├── mod.rs
+│       │   ├── library.rs
+│       │   ├── playback.rs
+│       │   └── downloads.rs
+│       ├── downloads/       # 下载桥接层与事件
+│       │   ├── mod.rs
+│       │   ├── bridge.rs
+│       │   └── events.rs
 │       └── player/          # 播放器实现
 └── crates/
     └── siren-core/          # 共享 Rust 核心库
         └── src/
+            ├── lib.rs       # 对外导出
             ├── api.rs       # 上游 HTTP API 客户端
             ├── audio.rs     # 音频格式检测 / 保存 / FLAC 标记
-            ├── downloader.rs # 下载流程
-            └── lib.rs       # 对外导出
+            ├── downloader.rs # 底层下载核心
+            └── download/     # 下载任务领域
+                ├── mod.rs
+                ├── model.rs
+                ├── planner.rs
+                ├── service.rs
+                ├── worker.rs
+                └── error.rs
 ```
 
 前端位于仓库根目录：
@@ -51,7 +68,7 @@ Cargo workspace
 - `src/lib/cache.ts`：专辑详情、歌曲详情、歌词和主题色缓存
 - `src/lib/theme.ts`：动态主题变量应用
 - `src/lib/types.ts`：前后端共享数据结构的 TS 版本
-- `src/lib/components/`：播放器、专辑卡片、曲目行和加载动画组件
+- `src/lib/components/`：播放器、专辑卡片、曲目行、加载动画组件
 
 ## 后端 command 清单
 
@@ -72,13 +89,34 @@ Cargo workspace
 - `play_previous`
 - `get_player_state`
 - `set_playback_volume`
-- `download_song`
 - `clear_audio_cache`
+- `create_download_job`
+- `list_download_jobs`
+- `get_download_job`
+- `cancel_download_job`
+- `cancel_download_task`
+- `retry_download_job`
+- `retry_download_task`
+- `clear_download_history`
 
 播放器事件：
 
 - `player-state-changed`
 - `player-progress`
+
+下载事件：
+
+- `download-manager-state-changed`
+- `download-job-updated`
+- `download-task-progress`
+
+## 文档结构
+
+- `README.md`：项目介绍、使用方式、构建命令
+- `UI_DESIGN.md`：界面布局、交互模式、主题策略
+- `doc/BACKEND_API_CONTRACT.md`：下载任务系统 API 契约（唯一事实来源）
+- `doc/BACKEND_API_PRD.md`：下载任务系统产品需求
+- `doc/BACKEND_API_PLAN.md`：下载任务系统实施计划
 
 ## 当前实现状态
 
@@ -97,12 +135,13 @@ Cargo workspace
 - 当前播放曲目和专辑曲目行的单曲下载
 - 歌词文本拉取与 `.lrc` 同目录保存开关
 - FLAC 元数据和封面写入
+- **M1** 下载任务领域模型、DownloadService、单曲任务化、新 commands / events
+- **M2** 整专下载、专辑封面落盘、下载进度事件推送、前端总进度展示、专辑页批量下载入口、重复创建保护
+- **M3** 任务取消、重试、历史清理、结构化错误码与详情、独立下载面板 UI
 
 ### 未完成
 
-- 批量下载
-- 下载进度 UI
-- 更完整的错误提示和任务状态管理
+- **M4** 系统通知集成
 
 ## 代码层约定
 
