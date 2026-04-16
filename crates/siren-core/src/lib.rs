@@ -14,9 +14,19 @@
 
 pub mod api;
 pub mod audio;
+pub mod download;
 pub mod downloader;
 
 // 重新导出公共 API，便于上层直接使用
 pub use api::{Album, AlbumDetail, ApiClient, SongDetail, SongEntry};
 pub use audio::{save_audio, tag_flac, AudioFormat, OutputFormat};
-pub use downloader::{download_song, DownloadProgress, MetaOverride};
+pub use download::model::{
+    CreateDownloadJobRequest, DownloadErrorCode, DownloadErrorInfo, DownloadJobKind,
+    DownloadJobSnapshot, DownloadJobStatus, DownloadManagerSnapshot, DownloadOptions,
+    DownloadTaskProgressEvent, DownloadTaskSnapshot, DownloadTaskStatus,
+};
+pub use download::service::DownloadService;
+pub use downloader::{
+    album_cover_exists, album_output_dir, download_album_cover, download_song,
+    write_album_cover_bytes, DownloadProgress, MetaOverride,
+};

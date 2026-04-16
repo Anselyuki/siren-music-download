@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
 use image::codecs::jpeg::JpegEncoder;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Detected audio format from raw bytes
@@ -41,7 +42,8 @@ impl AudioFormat {
 }
 
 /// Output format chosen by user
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OutputFormat {
     /// Keep as WAV (lossless, direct from API — no conversion needed)
     #[default]

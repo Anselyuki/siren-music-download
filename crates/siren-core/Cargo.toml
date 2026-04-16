@@ -18,6 +18,7 @@ image = { version = "0.25", default-features = false, features = ["gif", "jpeg",
 metaflac = "0.2"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
 tempfile = "3"
