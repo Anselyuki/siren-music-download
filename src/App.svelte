@@ -51,6 +51,8 @@
   } from "$lib/types";
   import { applyThemePalette, DEFAULT_THEME_PALETTE } from "$lib/theme";
   import { motionStyles } from "$lib/actions/motionStyles";
+  import { envStore } from "$lib/features/env/store.svelte";
+  import { shellStore } from "$lib/features/shell/store.svelte";
   import AlbumCard from "$lib/components/AlbumCard.svelte";
   import SongRow from "$lib/components/SongRow.svelte";
   import AudioPlayer from "$lib/components/AudioPlayer.svelte";
@@ -1351,6 +1353,9 @@
   });
 
   onMount(() => {
+    envStore.init();
+    shellStore.init();
+
     isMacOS =
       /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
       navigator.userAgent.includes("Mac");
@@ -1504,6 +1509,8 @@
     void initialize();
 
     return () => {
+      shellStore.dispose();
+      envStore.dispose();
       clearDetailSkeleton();
       if (albumStageMotionFrame) {
         cancelAnimationFrame(albumStageMotionFrame);
