@@ -622,6 +622,26 @@
     selectedSongCids = [];
   }
 
+  function selectAllSongs() {
+    if (!selectedAlbum) return;
+    selectedSongCids = selectedAlbum.songs.map((s: SongEntry) => s.cid);
+  }
+
+  function deselectAllSongs() {
+    selectedSongCids = [];
+  }
+
+  function invertSongSelection() {
+    if (!selectedAlbum) return;
+    const allCids = new Set(
+      selectedAlbum.songs.map((s: SongEntry) => s.cid),
+    );
+    const currentSelected = new Set(selectedSongCids);
+    selectedSongCids = [...allCids].filter(
+      (cid) => !currentSelected.has(cid),
+    );
+  }
+
   function toggleSelectionMode() {
     selectionModeEnabled = !selectionModeEnabled;
     if (!selectionModeEnabled) {
@@ -2566,6 +2586,65 @@
                       {selectionModeEnabled ? "取消多选" : "多选下载"}
                     </motion.button>
                     {#if selectionModeEnabled}
+                      <motion.button
+                        class="btn"
+                        onclick={selectAllSongs}
+                        disabled={!selectedAlbum ||
+                          selectedSongCount === selectedAlbum.songs.length}
+                        animate={appButtonAnimate(
+                          false,
+                          !selectedAlbum ||
+                            selectedSongCount === selectedAlbum.songs.length,
+                        )}
+                        whileHover={appButtonHover(
+                          false,
+                          !selectedAlbum ||
+                            selectedSongCount === selectedAlbum.songs.length,
+                        )}
+                        whileTap={!prefersReducedMotion &&
+                        selectedAlbum &&
+                        selectedSongCount !== selectedAlbum.songs.length
+                          ? { y: 0, scale: 0.98, opacity: 0.94 }
+                          : undefined}
+                        transition={interactiveTransition}
+                      >
+                        全选
+                      </motion.button>
+                      <motion.button
+                        class="btn"
+                        onclick={deselectAllSongs}
+                        disabled={selectedSongCount === 0}
+                        animate={appButtonAnimate(false, selectedSongCount === 0)}
+                        whileHover={appButtonHover(false, selectedSongCount === 0)}
+                        whileTap={!prefersReducedMotion && selectedSongCount > 0
+                          ? { y: 0, scale: 0.98, opacity: 0.94 }
+                          : undefined}
+                        transition={interactiveTransition}
+                      >
+                        清空
+                      </motion.button>
+                      <motion.button
+                        class="btn"
+                        onclick={invertSongSelection}
+                        disabled={!selectedAlbum ||
+                          selectedAlbum.songs.length === 0}
+                        animate={appButtonAnimate(
+                          false,
+                          !selectedAlbum || selectedAlbum.songs.length === 0,
+                        )}
+                        whileHover={appButtonHover(
+                          false,
+                          !selectedAlbum || selectedAlbum.songs.length === 0,
+                        )}
+                        whileTap={!prefersReducedMotion &&
+                        selectedAlbum &&
+                        selectedAlbum.songs.length > 0
+                          ? { y: 0, scale: 0.98, opacity: 0.94 }
+                          : undefined}
+                        transition={interactiveTransition}
+                      >
+                        反选
+                      </motion.button>
                       <motion.button
                         class="btn btn-primary"
                         onclick={handleSelectionDownload}
