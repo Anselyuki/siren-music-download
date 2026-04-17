@@ -21,6 +21,7 @@
     getPlayerState,
     clearAudioCache,
     extractImageTheme,
+    getImageDataUrl,
     getSongLyrics,
     createDownloadJob,
     listDownloadJobs,
@@ -51,11 +52,21 @@
   } from "$lib/types";
   import { applyThemePalette, DEFAULT_THEME_PALETTE } from "$lib/theme";
   import { motionStyles } from "$lib/actions/motionStyles";
+  import { envStore } from "$lib/features/env/store.svelte";
+  import { shellStore } from "$lib/features/shell/store.svelte";
+  import { toast } from "svelte-sonner";
   import AlbumCard from "$lib/components/AlbumCard.svelte";
   import SongRow from "$lib/components/SongRow.svelte";
   import AudioPlayer from "$lib/components/AudioPlayer.svelte";
   import MotionSpinner from "$lib/components/MotionSpinner.svelte";
   import MotionPulseBlock from "$lib/components/MotionPulseBlock.svelte";
+  import TopToolbar from "$lib/components/app/TopToolbar.svelte";
+  import SettingsSheet from "$lib/components/app/SettingsSheet.svelte";
+  import DownloadTasksSheet from "$lib/components/app/DownloadTasksSheet.svelte";
+  import StatusToastHost from "$lib/components/app/StatusToastHost.svelte";
+  import AlbumSidebar from "$lib/components/app/AlbumSidebar.svelte";
+  import AlbumWorkspace from "$lib/components/app/AlbumWorkspace.svelte";
+  import PlayerDock from "$lib/components/app/PlayerDock.svelte";
 
   // Minimum display time (ms) to prevent animation flash on fast loads
   const MIN_DISPLAY_MS = 260;
@@ -144,10 +155,12 @@
         ).length
       : 0,
   );
+  let downloadJobs = $derived(downloadManager?.jobs ?? []);
   // Track which song is currently being loaded to prevent duplicate play calls
   let playingCid = $state<string | null>(null);
   let albumRequestSeq = $state(0);
   let themeRequestSeq = 0;
+  let artworkRequestSeq = 0;
   let lyricRequestSeq = 0;
   let playbackEndRequestSeq = 0;
   let lastPlaybackSnapshot = {
@@ -161,6 +174,7 @@
     null,
   );
   let albumStageEl = $state<HTMLElement | null>(null);
+  let selectedAlbumArtworkUrl = $state<string | null>(null);
   let isMacOS = $state(false);
   let detailSkeletonTimer: ReturnType<typeof setTimeout> | null = null;
   let albumStageAspectRatio = $state(DEFAULT_ALBUM_STAGE_ASPECT_RATIO);
@@ -291,7 +305,17 @@
   async function preloadAlbumArtwork(
     album: AlbumDetail,
   ): Promise<number | null> {
-    const meta = await preloadImage(album.coverDeUrl ?? album.coverUrl ?? null);
+    const sourceUrl = album.coverDeUrl ?? album.coverUrl ?? null;
+    if (!sourceUrl) return null;
+
+    let resolvedUrl = sourceUrl;
+    try {
+      resolvedUrl = await getImageDataUrl(sourceUrl);
+    } catch {
+      resolvedUrl = sourceUrl;
+    }
+
+    const meta = await preloadImage(resolvedUrl);
     return meta?.aspectRatio ?? null;
   }
 
@@ -803,11 +827,11 @@
       const existingJob = getSongDownloadJob(currentSong.cid);
       await performSongDownload(currentSong.cid);
       if (existingJob) {
-        alert("这首歌的下载任务已在队列中或正在执行。");
+        notifyInfo("这首歌的下载任务已在队列中或正在执行。");
       }
     } catch (error) {
       console.error("[ERROR] Failed to download current song:", error);
-      alert(
+      notifyError(
         `下载失败：${error instanceof Error ? error.message : String(error)}`,
       );
     }
@@ -891,11 +915,11 @@
       const existingJob = findAlbumDownloadJob(selectedAlbum.cid);
       await performAlbumDownload(selectedAlbum);
       if (existingJob) {
-        alert("这张专辑的下载任务已在队列中或正在执行。");
+        notifyInfo("这张专辑的下载任务已在队列中或正在执行。");
       }
     } catch (error) {
       console.error("[ERROR] Failed to download album:", error);
-      alert(
+      notifyError(
         `整专下载失败：${error instanceof Error ? error.message : String(error)}`,
       );
     }
@@ -908,11 +932,11 @@
       const existingJob = findSelectionDownloadJob(selectedSongCids);
       await performSelectionDownload(selectedSongCids);
       if (existingJob) {
-        alert("这组歌曲的下载任务已在队列中或正在执行。");
+        notifyInfo("这组歌曲的下载任务已在队列中或正在执行。");
       }
     } catch (error) {
       console.error("[ERROR] Failed to create selection download job:", error);
-      alert(
+      notifyError(
         `批量下载失败：${error instanceof Error ? error.message : String(error)}`,
       );
     }
@@ -1054,12 +1078,14 @@
 
   type MotionTarget = Record<string, string | number>;
 
-  function motionTransition(duration: number, delay = 0) {
-    return {
+  function motionTransition(duration: number, delay = 0): any {
+    const transition: any = {
       duration: prefersReducedMotion ? 0 : duration,
       delay: prefersReducedMotion ? 0 : delay,
-      ease: "easeOut",
+      ease: "easeOut" as const,
     };
+
+    return transition;
   }
 
   function fadeEnter(opacity = 0): MotionTarget {
@@ -1297,6 +1323,28 @@
   });
 
   $effect(() => {
+    const sourceUrl = selectedAlbum?.coverDeUrl ?? selectedAlbum?.coverUrl ?? null;
+    const requestSeq = ++artworkRequestSeq;
+
+    if (!sourceUrl) {
+      selectedAlbumArtworkUrl = null;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const dataUrl = await getImageDataUrl(sourceUrl);
+        if (requestSeq !== artworkRequestSeq) return;
+        selectedAlbumArtworkUrl = dataUrl;
+      } catch (error) {
+        if (requestSeq !== artworkRequestSeq) return;
+        selectedAlbumArtworkUrl = null;
+        console.warn("[WARN] Failed to resolve album artwork:", error);
+      }
+    })();
+  });
+
+  $effect(() => {
     if (!albumStageEl) return;
 
     syncAlbumStageWidth();
@@ -1351,6 +1399,9 @@
   });
 
   onMount(() => {
+    envStore.init();
+    shellStore.init();
+
     isMacOS =
       /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
       navigator.userAgent.includes("Mac");
@@ -1504,6 +1555,8 @@
     void initialize();
 
     return () => {
+      shellStore.dispose();
+      envStore.dispose();
       clearDetailSkeleton();
       if (albumStageMotionFrame) {
         cancelAnimationFrame(albumStageMotionFrame);
@@ -1689,14 +1742,14 @@
     isClearingAudioCache = true;
     try {
       const removed = await clearAudioCache();
-      alert(
+      notifyInfo(
         removed > 0
           ? `已清除 ${removed} 个音频缓存文件`
           : "当前没有可清除的音频缓存",
       );
     } catch (e) {
       console.error("[ERROR] Failed to clear audio cache:", e);
-      alert(`清除音频缓存失败：${e instanceof Error ? e.message : String(e)}`);
+      notifyError(`清除音频缓存失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       isClearingAudioCache = false;
     }
@@ -1707,27 +1760,35 @@
     isSendingTestNotification = true;
     try {
       await sendTestNotification();
-      alert("测试通知已请求发送，请观察系统通知中心或终端日志。");
+      notifyInfo("测试通知已请求发送，请观察系统通知中心或终端日志。");
     } catch (e) {
       console.error("[ERROR] Failed to send test notification:", e);
-      alert(`发送测试通知失败：${e instanceof Error ? e.message : String(e)}`);
+      notifyError(`发送测试通知失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       isSendingTestNotification = false;
     }
   }
 
+  function notifyInfo(message: string) {
+    toast(message);
+  }
+
+  function notifyError(message: string) {
+    toast.error(message);
+  }
+
   // Download job helper functions
   function getActiveDownloadJob(): DownloadJobSnapshot | null {
     if (!downloadManager) return null;
-    if (downloadManager.activeJobId) {
+    const manager = downloadManager;
+
+    if (manager.activeJobId) {
       return (
-        downloadManager.jobs.find(
-          (j) => j.id === downloadManager.activeJobId,
-        ) ?? null
+        manager.jobs.find((j) => j.id === manager.activeJobId) ?? null
       );
     }
     // Fallback: find first running job
-    return downloadManager.jobs.find((j) => j.status === "running") ?? null;
+    return manager.jobs.find((j) => j.status === "running") ?? null;
   }
 
   function formatByteSize(bytes: number | null | undefined): string {
@@ -2047,11 +2108,11 @@
     try {
       const removed = await clearDownloadHistory();
       if (removed === 0) {
-        alert("当前没有可清理的下载历史。");
+        notifyInfo("当前没有可清理的下载历史。");
       }
     } catch (e) {
       console.error("[ERROR] Failed to clear download history:", e);
-      alert(`清理下载历史失败：${e instanceof Error ? e.message : String(e)}`);
+      notifyError(`清理下载历史失败：${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -2060,11 +2121,11 @@
       const existingJob = getSongDownloadJob(song.cid);
       await performSongDownload(song.cid);
       if (existingJob) {
-        alert("这首歌的下载任务已在队列中或正在执行。");
+        notifyInfo("这首歌的下载任务已在队列中或正在执行。");
       }
     } catch (error) {
       console.error("[ERROR] Failed to download song:", error);
-      alert(
+      notifyError(
         `下载失败：${error instanceof Error ? error.message : String(error)}`,
       );
     }
@@ -2203,6 +2264,8 @@
   ></div>
 {/if}
 
+<StatusToastHost />
+
 <div class="container" class:macos-overlay={isMacOS}>
   <!-- 专辑列表侧边栏 -->
   <OverlayScrollbarsComponent
@@ -2219,34 +2282,14 @@
         aria-hidden="true"
       ></div>
     {/if}
-    <h2 class="section-title">专辑</h2>
-    {#if loadingAlbums}
-      <div class="loading">
-        <span>正在加载专辑...</span><MotionSpinner
-          className="inline-loading-spinner"
-          reducedMotion={prefersReducedMotion}
-        />
-      </div>
-    {:else if errorMsg && albums.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">⚠️</div>
-        <div class="empty-text">加载失败</div>
-        <div class="empty-text" style="margin-top: 8px; font-size: 12px;">
-          {errorMsg}
-        </div>
-      </div>
-    {:else}
-      <div class="album-list">
-        {#each albums as album}
-          <AlbumCard
-            {album}
-            selected={selectedAlbumCid === album.cid}
-            reducedMotion={prefersReducedMotion}
-            onclick={() => handleSelectAlbum(album)}
-          />
-        {/each}
-      </div>
-    {/if}
+    <AlbumSidebar
+      {albums}
+      {selectedAlbumCid}
+      reducedMotion={prefersReducedMotion}
+      {loadingAlbums}
+      {errorMsg}
+      onSelect={handleSelectAlbum}
+    />
   </OverlayScrollbarsComponent>
 
   <section class="main-region">
@@ -2258,120 +2301,33 @@
       ></div>
     {/if}
 
-    <div class="top-actions">
-      <div class="top-toolbar" role="toolbar" aria-label="页面操作">
-        <motion.button
-          class="toolbar-icon-btn"
-          onclick={handleRefresh}
-          disabled={isRefreshing}
-          aria-label="刷新缓存"
-          title="刷新缓存"
-          animate={toolbarButtonAnimate(false, false, isRefreshing)}
-          whileHover={toolbarButtonHover(isRefreshing)}
-          whileTap={!prefersReducedMotion && !isRefreshing
-            ? { y: 0, scale: 0.96, opacity: 0.92 }
-            : undefined}
-          transition={interactiveTransition}
-        >
-          <motion.svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            animate={isRefreshing && !prefersReducedMotion
-              ? { rotate: 360 }
-              : { rotate: 0 }}
-            transition={{
-              duration: prefersReducedMotion ? 0 : 0.9,
-              ease: "linear",
-              repeat: isRefreshing && !prefersReducedMotion ? Infinity : 0,
-            }}
-          >
-            <path d="M21 12a9 9 0 1 1-6.86-8.72" />
-            <polyline points="21 3 21 12 12 12" />
-          </motion.svg>
-        </motion.button>
+    <TopToolbar
+      {activeDownloadCount}
+      {isRefreshing}
+      {settingsOpen}
+      {downloadPanelOpen}
+      onRefresh={handleRefresh}
+      onOpenDownloads={() => {
+        downloadPanelOpen = !downloadPanelOpen;
+        if (downloadPanelOpen) settingsOpen = false;
+      }}
+      onOpenSettings={() => {
+        settingsOpen = !settingsOpen;
+        if (settingsOpen) downloadPanelOpen = false;
+      }}
+    />
 
-        <!-- Download panel button -->
-        <motion.button
-          class={`toolbar-icon-btn${downloadPanelOpen ? " active" : ""}`}
-          onclick={() => {
-            downloadPanelOpen = !downloadPanelOpen;
-            if (downloadPanelOpen) settingsOpen = false;
-          }}
-          aria-label="下载任务"
-          aria-pressed={downloadPanelOpen}
-          title="下载任务"
-          animate={toolbarButtonAnimate(downloadPanelOpen, false, false)}
-          whileHover={toolbarButtonHover(false)}
-          whileTap={prefersReducedMotion
-            ? undefined
-            : { y: 0, scale: 0.96, opacity: 0.92 }}
-          transition={interactiveTransition}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M12 3v12" />
-            <path d="m8 11 4 4 4-4" />
-            <path d="M20 17H4" />
-            <path d="M20 21H4" />
-          </svg>
-          {#if activeDownloadCount > 0}
-            <span class="toolbar-badge">{activeDownloadCount}</span>
-          {/if}
-        </motion.button>
-
-        <motion.button
-          class={`toolbar-icon-btn${settingsOpen ? " active" : ""}`}
-          onclick={() => {
-            settingsOpen = !settingsOpen;
-            if (settingsOpen) downloadPanelOpen = false;
-          }}
-          aria-label="下载设置"
-          aria-pressed={settingsOpen}
-          title="下载设置"
-          animate={toolbarButtonAnimate(settingsOpen, false, false)}
-          whileHover={toolbarButtonHover(false)}
-          whileTap={prefersReducedMotion
-            ? undefined
-            : { y: 0, scale: 0.96, opacity: 0.92 }}
-          transition={interactiveTransition}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-            />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </motion.button>
-      </div>
-    </div>
 
     <!-- 歌曲列表内容区 -->
+    <AlbumWorkspace
+      {currentSong}
+      {loadingDetail}
+      {selectedAlbum}
+    >
+      {#snippet children()}
     <OverlayScrollbarsComponent
-      element="main"
-      class={`content${currentSong ? " content-with-player" : ""}${loadingDetail && selectedAlbum ? " content-pending" : ""}`}
+      element="div"
+      class="h-full"
       data-overlayscrollbars-initialize
       bind:this={contentScrollbar}
       options={overlayScrollbarOptions}
@@ -2481,7 +2437,7 @@
                   <div class="album-stage-media-content">
                     <img
                       class="album-stage-image"
-                      src={selectedAlbum.coverDeUrl ?? selectedAlbum.coverUrl}
+                      src={selectedAlbumArtworkUrl ?? undefined}
                       alt="{selectedAlbum.name} banner"
                       loading="eager"
                       style:opacity={albumStageImageOpacity}
@@ -2734,12 +2690,13 @@
         {/if}
       </AnimatePresence>
     </OverlayScrollbarsComponent>
+      {/snippet}
+    </AlbumWorkspace>
 
     <AnimatePresence>
       {#if currentSong}
         <motion.div
           key="player-dock"
-          class="player-dock"
           initial={axisEnter("y", 18)}
           animate={axisAnimate("y")}
           exit={fadeExit()}
@@ -2847,7 +2804,7 @@
               {/if}
             </AnimatePresence>
 
-            <AudioPlayer
+            <PlayerDock
               song={currentSong}
               {isPlaying}
               {isPaused}
@@ -2885,435 +2842,40 @@
     </AnimatePresence>
   </section>
 
-  <!-- Download settings panel (slide-in from right) -->
-  <AnimatePresence>
-    {#if settingsOpen}
-      <motion.div
-        key="settings-overlay"
-        class="settings-overlay"
-        role="button"
-        tabindex="-1"
-        onclick={() => (settingsOpen = false)}
-        onkeydown={(e) => e.key === "Escape" && (settingsOpen = false)}
-        initial={fadeEnter()}
-        animate={{ opacity: 1 }}
-        exit={fadeExit()}
-        transition={motionTransition(OVERLAY_DURATION)}
-      ></motion.div>
-      <motion.div
-        key="settings-panel"
-        class="settings-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        initial={axisEnter("x", 24)}
-        animate={axisAnimate("x")}
-        exit={axisExit("x", 18)}
-        transition={motionTransition(SHEET_DURATION)}
-      >
-        <div class="settings-header">
-          <h2 class="settings-title" id="settings-title">下载设置</h2>
-          <motion.button
-            class="settings-close"
-            onclick={() => (settingsOpen = false)}
-            aria-label="关闭"
-            animate={settingsCloseAnimate()}
-            whileHover={settingsCloseHover()}
-            whileTap={prefersReducedMotion
-              ? undefined
-              : { y: 0, scale: 0.96, opacity: 0.92 }}
-            transition={interactiveTransition}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" /><line
-                x1="6"
-                y1="6"
-                x2="18"
-                y2="18"
-              />
-            </svg>
-          </motion.button>
-        </div>
+  <SettingsSheet
+    bind:open={settingsOpen}
+    bind:format
+    {outputDir}
+    bind:downloadLyrics
+    bind:notifyOnDownloadComplete
+    bind:notifyOnPlaybackChange
+    {isSendingTestNotification}
+    {isClearingAudioCache}
+    onSelectDirectory={handleSelectDirectory}
+    onSendTestNotification={handleSendTestNotification}
+    onClearAudioCache={handleClearAudioCache}
+  />
 
-        <div class="form-group">
-          <label class="form-label" for="format-select">输出格式</label>
-          <select
-            id="format-select"
-            class="form-select"
-            bind:value={format}
-            use:motionStyles={{
-              animate: fieldMotion(isFormatHovered, isFormatFocused),
-              transition: interactiveTransition,
-              reducedMotion: prefersReducedMotion,
-            }}
-            onmouseenter={() => {
-              isFormatHovered = true;
-            }}
-            onmouseleave={() => {
-              isFormatHovered = false;
-            }}
-            onfocus={() => {
-              isFormatFocused = true;
-            }}
-            onblur={() => {
-              isFormatFocused = false;
-            }}
-          >
-            <option value="flac">FLAC（无损压缩）</option>
-            <option value="wav">WAV（无损）</option>
-            <option value="mp3">MP3</option>
-          </select>
-        </div>
+  <DownloadTasksSheet
+    bind:open={downloadPanelOpen}
+    {downloadManager}
+    {canClearDownloadHistory}
+    {getJobProgress}
+    {getJobProgressText}
+    {getJobStatusLabel}
+    {getJobKindLabel}
+    {getJobSummaryLabel}
+    {getJobErrorSummary}
+    {isJobActive}
+    {canCancelTask}
+    {canRetryTask}
+    {getTaskErrorLabel}
+    {getTaskStatusLabel}
+    onClearDownloadHistory={handleClearDownloadHistory}
+    onCancelDownloadJob={handleCancelDownloadJob}
+    onRetryDownloadJob={handleRetryDownloadJob}
+    onCancelDownloadTask={handleCancelDownloadTask}
+    onRetryDownloadTask={handleRetryDownloadTask}
+  />
 
-        <div class="form-group">
-          <label class="form-label" for="output-dir">保存位置</label>
-          <input
-            id="output-dir"
-            type="text"
-            class="form-input"
-            readonly
-            value={outputDir}
-            use:motionStyles={{
-              animate: fieldMotion(isOutputDirHovered, isOutputDirFocused),
-              transition: interactiveTransition,
-              reducedMotion: prefersReducedMotion,
-            }}
-            onmouseenter={() => {
-              isOutputDirHovered = true;
-            }}
-            onmouseleave={() => {
-              isOutputDirHovered = false;
-            }}
-            onfocus={() => {
-              isOutputDirFocused = true;
-            }}
-            onblur={() => {
-              isOutputDirFocused = false;
-            }}
-          />
-          <motion.button
-            class="btn"
-            onclick={handleSelectDirectory}
-            style="width: 100%; margin-top: 8px;"
-            animate={appButtonAnimate(false, false)}
-            whileHover={appButtonHover(false, false)}
-            whileTap={prefersReducedMotion
-              ? undefined
-              : { y: 0, scale: 0.98, opacity: 0.94 }}
-            transition={interactiveTransition}
-          >
-            📁 选择文件夹
-          </motion.button>
-        </div>
-
-        <div class="form-group">
-          <label class="settings-switch" for="download-lyrics">
-            <span class="settings-switch-copy">
-              <span class="form-label settings-switch-label">歌词文件</span>
-              <span class="form-help"
-                >有歌词时，在音频文件旁生成同名 `.lrc`。</span
-              >
-            </span>
-            <span class="settings-switch-control">
-              <input
-                id="download-lyrics"
-                class="settings-switch-input"
-                type="checkbox"
-                bind:checked={downloadLyrics}
-              />
-              <span class="settings-switch-track" aria-hidden="true">
-                <span class="settings-switch-thumb"></span>
-              </span>
-            </span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <div class="form-label">系统通知</div>
-          <p class="form-help">
-            桌面端权限由插件返回，不代表系统真实状态。请以打包后的 .app
-            验证通知行为。
-          </p>
-          <motion.button
-            class="btn"
-            onclick={handleSendTestNotification}
-            disabled={isSendingTestNotification}
-            style="width: 100%; justify-content: center; margin-top: 8px;"
-            animate={appButtonAnimate(false, isSendingTestNotification)}
-            whileHover={appButtonHover(false, isSendingTestNotification)}
-            whileTap={!prefersReducedMotion && !isSendingTestNotification
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
-          >
-            {isSendingTestNotification ? "正在发送..." : "发送测试通知"}
-          </motion.button>
-        </div>
-
-        <div class="form-group">
-          <label class="settings-switch" for="notify-download">
-            <span class="settings-switch-copy">
-              <span class="form-label settings-switch-label">下载完成通知</span>
-              <span class="form-help">下载任务完成时显示系统通知。</span>
-            </span>
-            <span class="settings-switch-control">
-              <input
-                id="notify-download"
-                class="settings-switch-input"
-                type="checkbox"
-                bind:checked={notifyOnDownloadComplete}
-              />
-              <span class="settings-switch-track" aria-hidden="true">
-                <span class="settings-switch-thumb"></span>
-              </span>
-            </span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label class="settings-switch" for="notify-playback">
-            <span class="settings-switch-copy">
-              <span class="form-label settings-switch-label">播放切换通知</span>
-              <span class="form-help">播放新歌曲时显示系统通知。</span>
-            </span>
-            <span class="settings-switch-control">
-              <input
-                id="notify-playback"
-                class="settings-switch-input"
-                type="checkbox"
-                bind:checked={notifyOnPlaybackChange}
-              />
-              <span class="settings-switch-track" aria-hidden="true">
-                <span class="settings-switch-thumb"></span>
-              </span>
-            </span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <div class="form-label">音乐缓存</div>
-          <p class="form-help">
-            播放时会边下边播，并把完整音频缓存到系统缓存目录。
-          </p>
-          <motion.button
-            class="btn"
-            onclick={handleClearAudioCache}
-            disabled={isClearingAudioCache}
-            style="width: 100%; justify-content: center; margin-top: 8px;"
-            animate={appButtonAnimate(false, isClearingAudioCache)}
-            whileHover={appButtonHover(false, isClearingAudioCache)}
-            whileTap={!prefersReducedMotion && !isClearingAudioCache
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
-          >
-            {isClearingAudioCache ? "正在清除缓存..." : "清除音频缓存"}
-          </motion.button>
-        </div>
-      </motion.div>
-    {/if}
-  </AnimatePresence>
-
-  <!-- Download tasks panel (independent slide-in from right) -->
-  <AnimatePresence>
-    {#if downloadPanelOpen}
-      <motion.div
-        key="download-overlay"
-        class="settings-overlay"
-        role="button"
-        tabindex="-1"
-        onclick={() => (downloadPanelOpen = false)}
-        onkeydown={(e) => e.key === "Escape" && (downloadPanelOpen = false)}
-        initial={fadeEnter()}
-        animate={{ opacity: 1 }}
-        exit={fadeExit()}
-        transition={motionTransition(OVERLAY_DURATION)}
-      ></motion.div>
-      <motion.div
-        key="download-panel"
-        class="download-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="download-panel-title"
-        initial={axisEnter("x", 24)}
-        animate={axisAnimate("x")}
-        exit={axisExit("x", 18)}
-        transition={motionTransition(SHEET_DURATION)}
-      >
-        <div class="settings-header">
-          <h2 class="settings-title" id="download-panel-title">下载任务</h2>
-          <div class="download-panel-header-actions">
-            <motion.button
-              class="download-panel-clear"
-              onclick={handleClearDownloadHistory}
-              disabled={!canClearDownloadHistory()}
-              animate={appButtonAnimate(false, !canClearDownloadHistory())}
-              whileHover={appButtonHover(false, !canClearDownloadHistory())}
-              whileTap={!prefersReducedMotion && canClearDownloadHistory()
-                ? { y: 0, scale: 0.98, opacity: 0.94 }
-                : undefined}
-              transition={interactiveTransition}
-            >
-              清理历史
-            </motion.button>
-            <motion.button
-              class="settings-close"
-              onclick={() => (downloadPanelOpen = false)}
-              aria-label="关闭"
-              animate={settingsCloseAnimate()}
-              whileHover={settingsCloseHover()}
-              whileTap={prefersReducedMotion
-                ? undefined
-                : { y: 0, scale: 0.96, opacity: 0.92 }}
-              transition={interactiveTransition}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" /><line
-                  x1="6"
-                  y1="6"
-                  x2="18"
-                  y2="18"
-                />
-              </svg>
-            </motion.button>
-          </div>
-        </div>
-
-        {#if downloadManager && downloadManager.jobs.length > 0}
-          <div class="download-jobs-list">
-            {#each [...downloadManager.jobs].reverse() as job (job.id)}
-              {@const progress = getJobProgress(job)}
-              {@const progressText = getJobProgressText(job)}
-              {@const statusLabel = getJobStatusLabel(job)}
-              {@const kindLabel = getJobKindLabel(job)}
-              {@const summaryLabel = getJobSummaryLabel(job)}
-              {@const errorSummary = getJobErrorSummary(job)}
-              {@const isActive = job.status === "running"}
-              <div
-                class="download-job-card"
-                class:is-active={isActive}
-                class:is-done={job.status === "completed" ||
-                  job.status === "failed" ||
-                  job.status === "cancelled" ||
-                  job.status === "partiallyFailed"}
-              >
-                <div class="download-job-header">
-                  <div class="download-job-info">
-                    <div class="download-job-meta-row">
-                      <span class="download-job-kind">{kindLabel}</span>
-                      <span class="download-job-status" data-status={job.status}
-                        >{statusLabel}</span
-                      >
-                    </div>
-                    <span class="download-job-title">{job.title}</span>
-                    <span class="download-job-summary">{summaryLabel}</span>
-                  </div>
-                  <div class="download-job-actions">
-                    {#if job.status === "running" || job.status === "queued"}
-                      <button
-                        class="download-job-btn download-job-cancel"
-                        onclick={() => handleCancelDownloadJob(job.id)}
-                        title="取消"
-                      >
-                        ✕
-                      </button>
-                    {:else if (job.status === "failed" || job.status === "partiallyFailed" || job.status === "cancelled") && !isJobActive(job.id)}
-                      <button
-                        class="download-job-btn download-job-retry"
-                        onclick={() => handleRetryDownloadJob(job.id)}
-                        title="重试"
-                      >
-                        ↻
-                      </button>
-                    {/if}
-                  </div>
-                </div>
-
-                {#if job.status === "running"}
-                  <div class="download-job-progress-bar">
-                    <div
-                      class="download-job-progress-fill"
-                      style="width: {progress * 100}%"
-                    ></div>
-                  </div>
-                  <p class="download-job-progress-text">{progressText}</p>
-                {:else if job.status === "completed" || job.status === "partiallyFailed" || job.status === "failed" || job.status === "cancelled"}
-                  <p class="download-job-progress-text">{progressText}</p>
-                {/if}
-
-                {#if errorSummary}
-                  <p class="download-job-error">{errorSummary}</p>
-                {/if}
-
-                <div class="download-job-tasks">
-                  {#each job.tasks as task (task.id)}
-                    {@const taskError = getTaskErrorLabel(task)}
-                    <div class="download-task-row" data-status={task.status}>
-                      <div class="download-task-copy">
-                        <span class="download-task-name">{task.songName}</span>
-                        {#if taskError}
-                          <span class="download-task-error">{taskError}</span>
-                        {/if}
-                      </div>
-                      <div class="download-task-meta">
-                        <span class="download-task-status"
-                          >{getTaskStatusLabel(task)}</span
-                        >
-                        <div class="download-task-actions">
-                          {#if canCancelTask(task)}
-                            <button
-                              class="download-task-btn download-task-cancel"
-                              onclick={() =>
-                                handleCancelDownloadTask(job.id, task.id)}
-                              title="取消该任务"
-                            >
-                              取消
-                            </button>
-                          {:else if canRetryTask(task) && !isJobActive(job.id)}
-                            <button
-                              class="download-task-btn download-task-retry"
-                              onclick={() =>
-                                handleRetryDownloadTask(job.id, task.id)}
-                              title="重试该任务"
-                            >
-                              重试
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <div class="download-panel-empty">
-            <p>暂无下载任务</p>
-            <p class="form-help">
-              点击专辑页的“下载整张专辑”或曲目右侧下载按钮开始下载
-            </p>
-          </div>
-        {/if}
-      </motion.div>
-    {/if}
-  </AnimatePresence>
 </div>

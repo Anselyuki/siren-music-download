@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getImageDataUrl } from '$lib/api';
   type RepeatMode = 'all' | 'one';
   type SongDownloadState = 'idle' | 'creating' | 'queued' | 'running';
 
@@ -66,6 +67,8 @@
   let seekPreview = $state<number | null>(null);
   let draggingSeek = $state(false);
   let activeCid = $state<string | null>(null);
+  let resolvedCoverUrl = $state<string | null>(null);
+  let coverRequestSeq = 0;
 
   function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
@@ -125,6 +128,28 @@
       seekPreview = null;
       draggingSeek = false;
     }
+  });
+
+  $effect(() => {
+    const coverUrl = song?.coverUrl ?? null;
+    const requestSeq = ++coverRequestSeq;
+
+    if (!coverUrl) {
+      resolvedCoverUrl = null;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const dataUrl = await getImageDataUrl(coverUrl);
+        if (requestSeq !== coverRequestSeq) return;
+        resolvedCoverUrl = dataUrl;
+      } catch (error) {
+        if (requestSeq !== coverRequestSeq) return;
+        resolvedCoverUrl = null;
+        console.warn('[WARN] Failed to resolve player cover image:', error);
+      }
+    })();
   });
 
   $effect(() => {
@@ -272,8 +297,8 @@
     <div class="center-panel">
       <div class="playback-stage">
         <div class="track-info">
-          {#if song.coverUrl}
-            <img src={song.coverUrl} alt={`${song.name} 封面`} class="cover" />
+          {#if resolvedCoverUrl}
+            <img src={resolvedCoverUrl} alt={`${song.name} 封面`} class="cover" />
           {:else}
             <div class="cover fallback" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M12 3v10.5a4 4 0 1 0 2 3.5V7h4V3h-6z"/></svg>
@@ -412,24 +437,14 @@
     --transport-width: 152px;
     width: min(625px, calc(100vw - 20px));
     min-width: 0;
-    min-height: 64px;
+    min-height: 62px;
     margin: 0 auto;
     border-radius: 999px;
-    border: 1px solid var(--surface-border);
-    background:
-      linear-gradient(180deg, var(--surface-highlight) 0%, transparent 32%),
-      radial-gradient(circle at 12% -8%, rgba(var(--accent-rgb), 0.16), transparent 34%),
-      linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--surface) 96%, rgba(255, 255, 255, 0.08)),
-        color-mix(in srgb, var(--surface) 88%, transparent)
-      );
-    backdrop-filter: blur(24px) saturate(1.2);
-    -webkit-backdrop-filter: blur(24px) saturate(1.2);
-    box-shadow:
-      0 14px 32px rgba(15, 23, 42, 0.12),
-      0 6px 18px rgba(var(--accent-rgb), 0.06),
-      inset 0 1px 0 color-mix(in srgb, var(--surface-highlight) 90%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
     display: grid;
     grid-template-columns: var(--transport-width) minmax(0, 1fr) auto;
     gap: 2px;
@@ -863,10 +878,10 @@
 
   .icon-button:hover:not(:disabled),
   .icon-button[aria-pressed="true"] {
-    background: var(--player-control-hover-bg);
+    background: rgba(var(--accent-rgb), 0.08);
     color: var(--icon-active);
-    border-color: rgba(var(--accent-rgb), 0.14);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    border-color: rgba(var(--accent-rgb), 0.08);
+    box-shadow: none;
   }
 
   .icon-button:hover:not(:disabled)::before,

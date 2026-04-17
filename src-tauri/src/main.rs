@@ -126,6 +126,7 @@ fn main() {
             commands::library::get_song_detail,
             commands::library::get_song_lyrics,
             commands::library::extract_image_theme,
+            commands::library::get_image_data_url,
             commands::library::get_default_output_dir,
             commands::playback::play_song,
             commands::playback::stop_playback,

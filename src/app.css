@@ -1,3 +1,8 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
 * {
   margin: 0;
   padding: 0;
@@ -10,6 +15,13 @@
   --accent-hover-rgb: 255, 59, 92;
   --accent: rgb(var(--accent-rgb));
   --accent-hover: rgb(var(--accent-hover-rgb));
+  --surface-window: color-mix(in srgb, var(--bg-primary) 100%, transparent);
+  --surface-sidebar: color-mix(in srgb, var(--bg-secondary) 92%, white 8%);
+  --surface-workspace: color-mix(in srgb, var(--bg-primary) 96%, white 4%);
+  --surface-sheet: color-mix(in srgb, var(--bg-secondary) 76%, white 24%);
+  --surface-dock: color-mix(in srgb, var(--player-shell-bg) 88%, white 12%);
+  --surface-flyout: color-mix(in srgb, var(--player-shell-bg) 80%, transparent);
+  --surface-state: rgba(var(--accent-rgb), 0.08);
   --motion-fast: 140ms;
   --motion-base: 180ms;
   --motion-slow: 260ms;

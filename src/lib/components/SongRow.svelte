@@ -142,7 +142,7 @@
   onmouseleave={() => { isHovered = false; }}
   onfocusin={() => { isFocused = true; }}
   onfocusout={() => { isFocused = false; }}
-  onkeydown={(e) => {
+  onkeydown={(e: KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleRowActivate();
@@ -157,7 +157,7 @@
       disabled={selectionDisabled}
       aria-label={isSelected ? `取消选择 ${song.name}` : `选择 ${song.name}`}
       aria-pressed={isSelected}
-      onclick={(event) => {
+      onclick={(event: MouseEvent) => {
         event.stopPropagation();
         onToggleSelection?.();
       }}
@@ -224,7 +224,7 @@
         color: isBusy ? 'var(--accent)' : showEmphasis ? 'var(--accent)' : 'var(--text-secondary)',
       }}
       transition={motionTransition}
-      onclick={(event) => {
+      onclick={(event: MouseEvent) => {
         event.stopPropagation();
         onDownload?.();
       }}

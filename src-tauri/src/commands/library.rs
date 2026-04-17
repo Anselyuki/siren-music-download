@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::theme;
+use base64::Engine;
 use tauri::State;
 
 #[tauri::command]
@@ -71,6 +72,29 @@ pub async fn extract_image_theme(
         .map_err(|e| e.to_string())
 }
 
+fn encode_image_data_url(mime: &str, bytes: &[u8]) -> String {
+    format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+#[tauri::command]
+pub async fn get_image_data_url(
+    state: State<'_, AppState>,
+    image_url: String,
+) -> Result<String, String> {
+    let bytes = state
+        .api
+        .download_bytes(&image_url, |_, _| {})
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mime = siren_core::audio::detect_image_mime(&bytes).unwrap_or("application/octet-stream");
+    Ok(encode_image_data_url(mime, &bytes))
+}
+
 #[tauri::command]
 pub fn get_default_output_dir() -> String {
     dirs::download_dir()
@@ -78,4 +102,15 @@ pub fn get_default_output_dir() -> String {
         .join("SirenMusic")
         .to_string_lossy()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_image_data_url;
+
+    #[test]
+    fn encodes_image_data_url() {
+        let url = encode_image_data_url("image/png", b"abc");
+        assert_eq!(url, "data:image/png;base64,YWJj");
+    }
 }
