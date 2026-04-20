@@ -259,6 +259,13 @@ if (import.meta.hot) {
 - 创建领域服务文件（如 `src/lib/api.ts` 或 `features/*/service.ts`）封装 Tauri IPC
 - UI 仅绑定服务层暴露的响应式状态或调用服务层暴露的方法
 
+### 下载标记与缓存规则
+
+- `getAlbums()`、`getAlbumDetail()`、`getSongDetail()` 返回值中的 `download` 字段属于动态数据
+- 一旦后端引入 `inventoryVersion`，前端缓存 key 必须纳入该版本，或在本地盘点事件后主动清理相关缓存
+- 不允许在缓存中长期保留脱离当前 `inventoryVersion` 的 `AlbumDetail` / `SongDetail`
+- 收到 `local-inventory-state-changed` 且 `inventoryVersion` 变化后，前端应刷新专辑列表、专辑详情和歌曲详情相关缓存/状态
+
 ## 6. 交互模式
 
 ### 顶部工具栏
@@ -269,6 +276,17 @@ if (import.meta.hot) {
 - 展示活动下载任务数量 badge
 
 设置面板和下载任务面板互斥打开。
+
+### 下载标记消费规则
+
+- 专辑列表直接消费 `Album.download`
+- 专辑详情曲目列表直接消费 `SongEntry.download.isDownloaded`
+- 当前歌曲详情或播放器关联区直接消费 `SongDetail.download`
+- 前端不得自己以下载任务历史或本地临时映射推导“是否已下载”，统一以后端内容接口返回的 `download` 字段为准
+- `download.isDownloaded = true` 的最低语义是“当前 active root 下已确认存在本地文件”，不等于“已完成一致性校验”
+- `download.downloadStatus = unverifiable` 时，前端仍按“已下载”展示，但可在需要时补充“未完成校验”提示
+- `download.downloadStatus = mismatch` 时，前端应按异常态处理，不应继续展示为普通“已下载”
+- 若需要区分“已存在 / 已校验 / 异常”，使用 `download.downloadStatus` 而不是重新发明前端枚举
 
 ### 曲目点击行为
 
@@ -361,6 +379,9 @@ App.svelte
 
 - [ ] 首屏可加载专辑列表
 - [ ] 切换专辑后详情刷新正常
+- [ ] 专辑列表下载标记正常
+- [ ] 曲目列表下载标记正常
+- [ ] 切换下载目录后下载标记可重建
 - [ ] 单曲播放 / 暂停 / 恢复 / seek 正常
 - [ ] 上一首 / 下一首 / 乱序 / 循环正常
 - [ ] 歌词面板显示和高亮正常

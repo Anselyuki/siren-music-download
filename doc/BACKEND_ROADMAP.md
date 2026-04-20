@@ -8,8 +8,9 @@
 
 ## 当前缺少的后端能力
 
-1. **下载 session 持久化**：当前下载任务状态仍是内存态，应用重启后历史和队列都会丢失。
-2. **搜索 / 过滤 / 历史视图增强的后端支撑**：当前 `list_download_jobs()` 返回完整快照，现阶段足够，但如果历史量变大，后端可能需要提供摘要、筛选或分页能力。
+1. **本地已下载文件盘点与下载标记**：当前后端无法基于当前 `outputDir` 可靠回答“某首歌/某张专辑是否已在本地存在”，前端列表也拿不到可直接消费的下载标记。
+2. **下载 session 持久化**：当前下载任务状态仍是内存态，应用重启后历史和队列都会丢失。
+3. **搜索 / 过滤 / 历史视图增强的后端支撑**：当前 `list_download_jobs()` 返回完整快照，现阶段足够，但如果历史量变大，后端可能需要提供摘要、筛选或分页能力。
 
 ## Phase 5：统一偏好系统
 
@@ -98,7 +99,91 @@ notifyOnPlaybackChange = true
 6. 导入有效备份后，当前偏好被覆盖
 7. 导入非法备份（路径不存在、格式错误、验证失败）时，当前偏好不变，返回错误
 
-## Phase 6：缓存替换方案
+## Phase 6：本地已下载盘点与下载标记
+
+### 目标
+
+基于当前 `AppPreferences.outputDir` 建立本地盘点能力，把“是否已下载”直接带到专辑列表、专辑详情和歌曲详情返回中，并在下载目录切换后自动重新检测。
+
+### 范围
+
+本阶段处理：
+
+- 当前 active `outputDir` 下的本地音频文件盘点
+- `Album` / `AlbumDetail` / `SongEntry` / `SongDetail` 返回值上的下载标记 enrich
+- 本地盘点快照、重扫命令与进度事件
+- `outputDir` 切换后的异步自动重扫
+- 条件满足时的 best-effort MD5 校验
+
+本阶段不做：
+
+- 旧目录到新目录的自动迁移
+- 多 root 并行盘点
+- 自动修复损坏文件或自动重下
+- 为首版引入数据库
+
+### 关键决策
+
+1. **独立域**：本地盘点作为独立后端域，不并入 `DownloadService`。
+2. **列表直出下载标记**：`get_albums()`、`get_album_detail()`、`get_song_detail()` 直接返回 `download` 字段，不新增第二套内容命令。
+3. **状态分离**：区分 `isDownloaded` 与 `downloadStatus`，避免把“本地存在”和“已校验一致”混为一谈；其中 `unverifiable` 表示“已存在但无法可信校验”，仍视为已下载。
+4. **缓存失效键**：使用 `inventoryVersion` 作为前端动态缓存的统一失效键。
+5. **MD5 best-effort**：只有本地最终文件与远端 checksum 语义可比时才尝试 MD5，不把 MD5 作为已下载识别前置条件。
+6. **provenance 映射**：对下载时拿到的原始资源 checksum（如 `Content-MD5` / `ETag`）与处理后产物建立持久映射，用“来源一致”替代“转码后文件必须直接命中远端 MD5”。
+7. **可信边界明确化**：provenance 只承接下载链路内已建链的受信来源；若最终产物被外部修改或摘要不再匹配，则映射失效。
+
+### 主要工作
+
+1. 在 `siren-core` / `src-tauri` 中引入本地盘点服务、扫描器与匹配逻辑。
+2. 冻结 `LocalTrackDownloadStatus`、`TrackDownloadBadge`、`AlbumDownloadBadge`、`LocalInventorySnapshot` 等共享类型。
+3. 为 `Album`、`AlbumDetail`、`SongEntry`、`SongDetail` 增加 `download` 字段。
+4. 新增 `get_local_inventory_snapshot()`、`rescan_local_inventory()`、`cancel_local_inventory_scan()`。
+5. 新增 `local-inventory-state-changed` 与 `local-inventory-scan-progress` 事件。
+6. 在 `set_preferences()` 中对 `outputDir` 变化增加异步重扫触发。
+7. 明确前端缓存失效策略：缓存 key 包含 `inventoryVersion` 或在盘点事件后主动失效。
+8. 补充上游 checksum 能力研究，确认 MD5 的可用边界。
+9. 设计并落地 provenance 映射存储：记录 `remote_checksum`、原始资源标识、处理参数摘要与最终产物摘要，为转码/写 tag 后的文件提供来源校验依据。
+10. 为 `strict` 模式补齐落地语义：显式产出 `unverifiable`，而不是把“已存在但无法校验”折叠到 `detected`。
+11. 明确 provenance 失效规则：文件被外部修改、覆盖或摘要漂移后，已有映射不得继续用于“来源已验证”结论。
+
+### 涉及文件
+
+- `crates/siren-core/src/api.rs`
+- `crates/siren-core/src/local_inventory/`（新目录）
+- `src-tauri/src/app_state.rs`
+- `src-tauri/src/commands/library.rs`
+- `src-tauri/src/commands/preferences.rs`
+- `src-tauri/src/commands/local_inventory.rs`（新文件）
+- `src-tauri/src/local_inventory/`（新目录）
+- `src/lib/types.ts`
+- `src/lib/api.ts`
+- `BACKEND_API_CONTRACT.md`
+- `FRONTEND_GUIDE.md`
+
+### 完成定义
+
+- `get_albums()` 返回的专辑列表可直接显示“已有下载内容”
+- `get_album_detail()` 返回的曲目列表可直接读取 `song.download.isDownloaded`
+- `get_song_detail()` 返回包含下载标记
+- 修改 `outputDir` 后，无需重启应用即可触发新的盘点
+- 前端在盘点后不会继续展示旧的下载标记缓存
+- 不可比场景下不会错误地因为 MD5 缺失把本地文件判为未下载
+- `strict` 模式下，“已存在但无法校验”的文件会稳定落到 `unverifiable`，而不是被折叠为 `detected` 或误判为未下载
+- 对于转码或写 tag/cover 后的产物，若存在可信 provenance 映射，可判定其来源对应的原始资源已校验一致
+- 对已建立 provenance 的产物，一旦文件被外部修改、覆盖或摘要漂移，不再继续沿用旧的“来源已验证”结论
+
+### 验证项
+
+1. 空目录扫描时，列表项下载标记全部为 false。
+2. 单首已落盘时，对应 `SongEntry.download.isDownloaded` 为 true。
+3. 专辑目录部分曲目存在时，专辑级下载聚合字段正确。
+4. 切换下载目录后，新旧目录下载标记按当前 root 正确切换。
+5. WAV → FLAC 场景不会错误进入“MD5 mismatch”。
+6. `strict` 模式下，远端 checksum 缺失或不可比时，已确认存在的本地文件会返回 `unverifiable`，且 `isDownloaded` 仍为 true。
+7. 对已建立 provenance 映射的转码产物，可在不直接比较最终文件与远端原始 MD5 的前提下判定来源一致。
+8. 对已建立 provenance 映射的产物，在文件摘要变化后重新扫描，不再返回 `verified`。
+
+## Phase 7：缓存替换方案
 
 ### 目标
 
@@ -209,7 +294,7 @@ notifyOnPlaybackChange = true
 4. 封面缓存清理在后台执行，不阻塞通知展示
 5. siren-core 对相同请求（相同 method + path + params）的第二次调用不走网络
 
-## Phase 7（原 Phase 6）：下载 session 持久化
+## Phase 8（原 Phase 6）：下载 session 持久化
 
 ### 目标
 
@@ -265,7 +350,7 @@ notifyOnPlaybackChange = true
 4. 清理历史后再次重启，已清理记录不会重新出现。
 5. 人工破坏状态文件，应用仍可启动并回退到空历史。
 
-## Phase 8（原 Phase 7）：搜索 / 过滤 / 历史视图后端支撑（条件触发）
+## Phase 9（原 Phase 7）：搜索 / 过滤 / 历史视图后端支撑（条件触发）
 
 ### 触发条件
 
@@ -313,10 +398,11 @@ notifyOnPlaybackChange = true
 ## 建议执行顺序
 
 1. **优先实现 Phase 5（统一偏好系统）**。偏好分散存储问题已在日常使用中造成不一致体验，且改动范围可控。
-2. Phase 6（缓存替换方案）解决内存 / 磁盘无限增长，是稳定性的关键。
-3. Phase 7（session 持久化）与 Phase 6 涉及不同领域，可并行或交叉进行。
-4. 持久化落地后，再根据真实历史规模决定是否进入 Phase 8。
-5. 搜索 / 过滤 / 历史视图若在当前数据量下可由前端直接完成，则后端继续保持现状。
+2. **紧接着实现 Phase 6（本地已下载盘点与下载标记）**。它直接支撑前端列表/详情下载态，也是 `outputDir` 切换体验的关键。
+3. Phase 7（缓存替换方案）需要把 `inventoryVersion` 纳入缓存失效策略。
+4. Phase 8（session 持久化）与 Phase 6 涉及不同领域，可并行或交叉进行。
+5. 持久化落地后，再根据真实历史规模决定是否进入 Phase 9。
+6. 搜索 / 过滤 / 历史视图若在当前数据量下可由前端直接完成，则后端继续保持现状。
 
 ## 暂不纳入后端计划的事项
 

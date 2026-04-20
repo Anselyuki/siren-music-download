@@ -1,10 +1,10 @@
 # 后端 API 契约
 
-本文档是下载任务系统的唯一契约来源，定义了前后端共享的类型、命令、事件和状态机规则。
+本文档是后端类型、命令、事件和状态机规则的唯一契约来源。
 
 相关文档：
 
-- [BACKEND_ROADMAP.md](BACKEND_ROADMAP.md)：后端未来规划（Phase 5~8）
+- [BACKEND_ROADMAP.md](BACKEND_ROADMAP.md)：后端未来规划（Phase 5~9）
 - [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md)：前端架构与开发指南
 
 ## 共享类型
@@ -23,6 +23,17 @@
 - `DownloadManagerSnapshot`
 - `CreateDownloadJobRequest`
 - `DownloadTaskProgressEvent`
+- `LocalTrackDownloadStatus`
+- `TrackDownloadBadge`
+- `AlbumDownloadBadge`
+- `LocalInventoryStatus`
+- `VerificationMode`
+- `LocalInventorySnapshot`
+- `LocalInventoryScanProgressEvent`
+- `Album`
+- `SongEntry`
+- `SongDetail`
+- `AlbumDetail`
 - `AppPreferences`
 - `NotificationPreferences`
 - `NotificationPermissionState`
@@ -153,6 +164,141 @@
 - `songIndex: number`
 - `songCount: number`
 
+### `LocalTrackDownloadStatus`
+
+冻结枚举：
+
+- `missing`
+- `detected`
+- `verified`
+- `mismatch`
+- `partial`
+- `unverifiable`
+- `unknown`
+
+语义：
+
+- `missing`：当前 active `outputDir` 下未发现可接受的本地文件
+- `detected`：已确认本地文件存在，并可作为“已下载”消费，但本次未进入校验或无需校验
+- `verified`：已通过直接可比的 checksum 校验，或通过可信 provenance 映射确认来源一致
+- `mismatch`：已进入可比校验，且校验结果明确不一致
+- `partial`：只发现了部分预期产物，尚不足以视为完整一致，但仍可提示用户本地已有残留内容
+- `unverifiable`：已确认本地文件存在，但在 `strict` 模式下因远端 checksum 缺失、不可比、来源链条不完整或校验前提不足，无法给出一致性结论
+- `unknown`：发现了候选文件或线索，但尚不足以确认“该曲目已在本地存在”
+
+前端布尔下载标记映射规则：
+
+- `isDownloaded = true` 对应 `detected | verified | partial | unverifiable`
+- `isDownloaded = false` 对应 `missing | mismatch | unknown`
+
+### `TrackDownloadBadge`
+
+- `isDownloaded: boolean`
+- `downloadStatus: LocalTrackDownloadStatus`
+- `inventoryVersion: string`
+
+说明：
+
+- `isDownloaded` 供前端列表和详情直接使用
+- `downloadStatus` 用于表达更细粒度的后端语义
+- `inventoryVersion` 用于前端动态缓存失效
+
+### `AlbumDownloadBadge`
+
+- `hasDownloadedTracks: boolean`
+- `downloadedTrackCount: number`
+- `verifiedTrackCount: number`
+- `mismatchTrackCount: number`
+- `inventoryVersion: string`
+
+说明：
+
+- `get_albums()` 首版不强制返回 `isFullyDownloaded`
+- 若未来稳定获得总曲数，可再扩展 `totalTrackCount` / `isFullyDownloaded`
+
+### `LocalInventoryStatus`
+
+冻结枚举：
+
+- `idle`
+- `scanning`
+- `completed`
+- `failed`
+
+### `VerificationMode`
+
+冻结枚举：
+
+- `none`
+- `whenAvailable`
+- `strict`
+
+语义：
+
+- `none`：只做本地盘点与匹配，不做 MD5 或 provenance 校验
+- `whenAvailable`：仅在本地文件与远端 checksum 语义可比，或存在可验证的 provenance 映射时尝试校验；否则保留“已检测到但未校验”语义
+- `strict`：在 `whenAvailable` 基础上，显式把“已存在但无法校验”标记为 `unverifiable`，而不是折叠为 `detected`
+
+### `LocalInventorySnapshot`
+
+- `rootOutputDir: string`
+- `status: LocalInventoryStatus`
+- `inventoryVersion: string`
+- `startedAt: string | null`
+- `finishedAt: string | null`
+- `scannedFileCount: number`
+- `matchedTrackCount: number`
+- `verifiedTrackCount: number`
+- `lastError: string | null`
+
+### `LocalInventoryScanProgressEvent`
+
+- `rootOutputDir: string`
+- `inventoryVersion: string`
+- `filesScanned: number`
+- `matchedTrackCount: number`
+- `verifiedTrackCount: number`
+- `currentPath: string | null`
+
+### `Album`
+
+- `cid: string`
+- `name: string`
+- `coverUrl: string`
+- `artists: string[]`
+- `download: AlbumDownloadBadge`
+
+### `SongEntry`
+
+- `cid: string`
+- `name: string`
+- `artists: string[]`
+- `download: TrackDownloadBadge`
+
+### `SongDetail`
+
+- `cid: string`
+- `name: string`
+- `albumCid: string`
+- `sourceUrl: string`
+- `lyricUrl: string | null`
+- `mvUrl: string | null`
+- `mvCoverUrl: string | null`
+- `artists: string[]`
+- `download: TrackDownloadBadge`
+
+### `AlbumDetail`
+
+- `cid: string`
+- `name: string`
+- `intro: string | null`
+- `belong: string`
+- `coverUrl: string`
+- `coverDeUrl: string | null`
+- `artists: string[] | null`
+- `songs: SongEntry[]`
+- `download: AlbumDownloadBadge`
+
 ### `NotificationPreferences`
 
 - `notifyOnDownloadComplete: boolean`
@@ -178,6 +324,39 @@
 - `prompt-with-rationale`
 
 ## Commands
+
+### 内容命令
+
+冻结命令如下：
+
+1. `get_albums() -> Album[]`
+2. `get_album_detail(albumCid: string) -> AlbumDetail`
+3. `get_song_detail(cid: string) -> SongDetail`
+4. `get_song_lyrics(cid: string) -> string | null`
+5. `extract_image_theme(imageUrl: string) -> ThemePalette`
+6. `get_image_data_url(imageUrl: string) -> string`
+7. `get_default_output_dir() -> string`
+
+说明：
+
+- `get_albums`、`get_album_detail`、`get_song_detail` 的返回值必须包含 `download` 字段
+- 前端列表和详情直接消费 `download.isDownloaded`
+- 下载标记的真相来源是当前 active `outputDir` 下的本地盘点结果，不是下载任务历史
+
+### 本地盘点命令
+
+冻结命令如下：
+
+1. `get_local_inventory_snapshot() -> LocalInventorySnapshot`
+2. `rescan_local_inventory(verificationMode?: VerificationMode) -> LocalInventorySnapshot`
+3. `cancel_local_inventory_scan() -> LocalInventorySnapshot`
+
+说明：
+
+- 盘点范围首版只覆盖当前 `AppPreferences.outputDir`
+- `set_preferences()` 中 `outputDir` 变更后，应异步触发新的本地盘点
+- `set_preferences()` 不能阻塞等待盘点完成
+- 同一时刻仅允许一个 active root；新扫描请求可以覆盖旧扫描请求
 
 ### 下载任务命令
 
@@ -263,12 +442,16 @@
 1. `download-manager-state-changed`，载荷为 `DownloadManagerSnapshot`
 2. `download-job-updated`，载荷为 `DownloadJobSnapshot`
 3. `download-task-progress`，载荷为 `DownloadTaskProgressEvent`
+4. `local-inventory-state-changed`，载荷为 `LocalInventorySnapshot`
+5. `local-inventory-scan-progress`，载荷为 `LocalInventoryScanProgressEvent`
 
 其中：
 
 - `download-manager-state-changed` 负责同步整体任务列表概览
 - `download-job-updated` 负责同步某个任务完整快照
 - `download-task-progress` 负责同步细粒度下载进度
+- `local-inventory-state-changed` 负责同步本地盘点状态与 `inventoryVersion`
+- `local-inventory-scan-progress` 负责同步本地盘点进度
 
 ## 快照与事件载荷原则
 
@@ -300,7 +483,9 @@
 - `queued | preparing | downloading | writing -> failed`
 - `queued | preparing | downloading -> cancelled`
 
-## 文件落盘约定
+## 文件落盘与本地盘点约定
+
+### 文件落盘约定
 
 冻结规则：
 
@@ -310,6 +495,41 @@
 - `cover` 为固定基础名，扩展名由实际图片 MIME/内容类型决定
 - 若同目录已存在同名 `cover.<ext>`，新下载应覆盖旧文件，避免生成 `cover (1)` 之类不稳定命名
 - 任务完成后，`DownloadTaskSnapshot.outputPath` 应指向各歌曲的实际落盘路径；专辑封面属于 Job 级附属产物，不强制建模为单独 Task
+
+### 本地盘点约定
+
+冻结规则：
+
+- 首版本地盘点只扫描当前 `AppPreferences.outputDir`
+- 下载标记必须直接进入 `Album`、`AlbumDetail`、`SongEntry`、`SongDetail` 返回值
+- `download.isDownloaded` 是前端列表和详情的直接消费字段
+- `download.downloadStatus` 用于表达更细粒度的语义状态
+- `isDownloaded = true` 的最低语义是“当前 active root 下已确认存在本地文件”，不是“已完成远端一致性校验”
+- `mismatch` 表示“本地存在但校验明确不一致”，属于异常态，不应被前端展示为“已下载”
+- `unverifiable` 表示“本地存在但当前无法完成可信校验”，仍属于“已下载”
+- `unknown` 只用于“存在候选线索但尚不足以确认本地已下载”的场景，不用于表达“已存在但无法校验”
+- 本地盘点优先依据确定性路径规则、扩展名和目录结构进行匹配，必要时才使用 metadata 辅助确认
+- 首版不要求对整个目录做全量 MD5 计算
+- `inventoryVersion` 在每次成功完成盘点后变化，用作动态缓存失效键
+- 当前 root 切换后，旧 root 的盘点结果不再作为当前前端列表的真相来源
+
+### MD5 校验约定
+
+冻结规则：
+
+- MD5 校验是可选能力，不是“已下载识别”的前置条件
+- 只有当本地最终文件与远端 checksum 指向的产物语义可比时，才允许进入直接 checksum 校验
+- `whenAvailable` 模式下，只对可比候选或可验证 provenance 候选做校验
+- 若远端 checksum 缺失、不可比或语义不明确，默认状态停留在 `detected`；仅 `strict` 模式下升级为 `unverifiable`
+- 不允许因为“无法做 MD5”而否定“本地已下载”的事实
+- WAV → FLAC 转码、以及 FLAC 写入 tag / cover 后，通常不能直接与原始源文件 MD5 对比
+- 对于转码、重封装或写入 tag / cover 后的产物，允许通过 provenance 映射承接原始资源校验结果，而不是要求最终文件 MD5 直接等于远端原始 checksum
+- provenance 映射至少应记录：远端 checksum、远端资源标识（如 `sourceUrl` / `ETag` / `Content-Length`）、处理参数摘要、最终产物摘要
+- 只有当 provenance 映射链条完整且可验证时，才允许给出“来源已验证”的结论；否则按 `detected` 或 `unverifiable` 处理
+- provenance 映射用于证明“该最终文件来源于某个已校验的原始资源”，不表示“该最终文件字节级等同于远端原始资源”
+- 若最终产物摘要与映射记录不一致，或文件 mtime/size/摘要表明文件在映射建立后被外部修改、覆盖或替换，则该 provenance 映射必须失效
+- 文件重命名或目录迁移本身不自动使 provenance 失效；只要最终产物摘要仍匹配，映射仍可复用
+- provenance 只能用于承接下载链路内已记录的受信来源，不可对扫描时首次发现、且缺少可信建链信息的历史遗留文件反向臆造映射
 
 ## 冻结决策
 
@@ -326,3 +546,9 @@
 11. 偏好系统重构后，`AppPreferences` 为唯一偏好数据源，`OutputFormat` 枚举同步到前端共享类型。
 12. 偏好持久化使用手写 TOML 文件，不依赖外部插件。
 13. 偏好备份/恢复由用户指定文件路径，后端仅执行读写操作，不管理默认路径。
+14. 本地盘点为独立域，不并入 `DownloadService`。
+15. 内容命令返回 enriched 结构，不新增第二套“带下载态”的内容命令。
+16. 前端统一读取 `download.isDownloaded` 作为列表和详情下载标记。
+17. `inventoryVersion` 是下载标记动态缓存的统一失效键。
+18. `outputDir` 改变后，后端异步自动重扫当前 active root。
+19. MD5 只做 best-effort，不作为首版能力成功与否的前置条件。
