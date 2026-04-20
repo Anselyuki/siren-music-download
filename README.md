@@ -53,22 +53,21 @@
 ### 环境要求
 
 - Rust
-- Node.js 24+（与 CI 保持一致；最低需满足 20.19+ / 22.12+ / 24+ 之一）
-- pnpm 10.33.0（推荐通过 `corepack enable` 启用）
+- Bun 1.3+（唯一 JS 包管理器）
 
 ### 常用命令
 
-仓库前端依赖统一使用 `pnpm` 管理，`pnpm-lock.yaml` 是唯一锁文件，不再维护 `package-lock.json`。
+仓库前端依赖统一使用 `Bun` 管理，`bun.lock` 是唯一 JS 锁文件，需要提交到仓库。
 
 ```bash
-pnpm install
-pnpm run tauri:dev
+bun install
+bun run tauri:dev
 ```
 
 ```bash
-pnpm run check
-pnpm run build
-pnpm run tauri:build
+bun run check
+bun run build
+bun run tauri:build
 cargo check --workspace
 ```
 
