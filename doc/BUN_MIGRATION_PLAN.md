@@ -2,6 +2,29 @@
 
 > 将当前仓库从 pnpm 迁移到 Bun 的独立实施文档。
 
+## 迁移进度
+
+**提交**: `4f510fb` (2026-04-20)
+
+### 已完成 ✅
+
+- [x] 阶段 1: 生成并验证 Bun 锁文件，删除 pnpm 锁文件
+- [x] 阶段 2: 项目脚本改成 Bun，固定单一 Bun 版本策略
+- [x] 阶段 3: Tauri 前端构建钩子切到 Bun
+- [x] 阶段 4-A: CI workflow 迁移
+- [x] 阶段 4-B: Release workflow 迁移
+- [x] 阶段 5: 更新 README 与其余文档/模板
+- [x] 阶段 7 (部分): 收尾验证与残留清理
+
+### 待验证 ⏳
+
+- [ ] 本地 `bun run tauri:dev` 验证
+- [ ] 本地 `bun run tauri:build` 验证
+- [ ] CI `windows-latest` 实际通过
+- [ ] Release workflow 三平台实际通过
+
+---
+
 ## 背景
 
 当前仓库刚刚从 npm 迁移到 pnpm（提交 `3a27176`），`pnpm-lock.yaml` 是唯一 JS 锁文件。下一步目标是进一步切到 Bun；这次变更的核心不是业务代码，而是把前端依赖安装、脚本执行、Tauri 前端构建钩子、CI 和 release workflow 统一到 Bun。
