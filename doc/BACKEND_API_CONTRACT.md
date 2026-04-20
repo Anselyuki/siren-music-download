@@ -42,7 +42,7 @@
 
 ### `OutputFormat`
 
-冻结枚举：
+枚举值：
 
 - `flac`
 - `wav`
@@ -56,7 +56,7 @@
 
 ### `DownloadJobKind`
 
-冻结枚举：
+枚举值：
 
 - `song`
 - `album`
@@ -64,7 +64,7 @@
 
 ### `DownloadJobStatus`
 
-冻结枚举：
+枚举值：
 
 - `queued`
 - `running`
@@ -75,7 +75,7 @@
 
 ### `DownloadTaskStatus`
 
-冻结枚举：
+枚举值：
 
 - `queued`
 - `preparing`
@@ -87,7 +87,7 @@
 
 ### `DownloadErrorCode`
 
-冻结枚举：
+枚举值：
 
 - `network`
 - `api`
@@ -166,7 +166,7 @@
 
 ### `LocalTrackDownloadStatus`
 
-冻结枚举：
+枚举值：
 
 - `missing`
 - `detected`
@@ -197,11 +197,11 @@
 - `downloadStatus: LocalTrackDownloadStatus`
 - `inventoryVersion: string`
 
-说明：
+字段职责：
 
-- `isDownloaded` 供前端列表和详情直接使用
-- `downloadStatus` 用于表达更细粒度的后端语义
-- `inventoryVersion` 用于前端动态缓存失效
+- 前端直接消费 `isDownloaded`
+- 更细粒度语义由 `downloadStatus` 表达
+- `inventoryVersion` 用于动态缓存失效
 
 ### `AlbumDownloadBadge`
 
@@ -211,14 +211,14 @@
 - `mismatchTrackCount: number`
 - `inventoryVersion: string`
 
-说明：
+字段边界：
 
-- `get_albums()` 首版不强制返回 `isFullyDownloaded`
-- 若未来稳定获得总曲数，可再扩展 `totalTrackCount` / `isFullyDownloaded`
+- `get_albums()` 不返回 `isFullyDownloaded`
+- `AlbumDownloadBadge` 不包含 `totalTrackCount` 和 `isFullyDownloaded`
 
 ### `LocalInventoryStatus`
 
-冻结枚举：
+枚举值：
 
 - `idle`
 - `scanning`
@@ -227,7 +227,7 @@
 
 ### `VerificationMode`
 
-冻结枚举：
+枚举值：
 
 - `none`
 - `whenAvailable`
@@ -306,7 +306,7 @@
 
 ### `AppPreferences`
 
-统一应用偏好模型，持久化到 `{app_data_dir}/preferences.toml`。
+应用偏好持久化到 `{app_data_dir}/preferences.toml`。
 
 - `outputFormat: OutputFormat`
 - `outputDir: string`
@@ -316,7 +316,7 @@
 
 ### `NotificationPermissionState`
 
-冻结枚举：
+枚举值：
 
 - `granted`
 - `denied`
@@ -327,7 +327,7 @@
 
 ### 内容命令
 
-冻结命令如下：
+命令如下：
 
 1. `get_albums() -> Album[]`
 2. `get_album_detail(albumCid: string) -> AlbumDetail`
@@ -337,30 +337,28 @@
 6. `get_image_data_url(imageUrl: string) -> string`
 7. `get_default_output_dir() -> string`
 
-说明：
+返回约束：
 
 - `get_albums`、`get_album_detail`、`get_song_detail` 的返回值必须包含 `download` 字段
-- 前端列表和详情直接消费 `download.isDownloaded`
-- 下载标记的真相来源是当前 active `outputDir` 下的本地盘点结果，不是下载任务历史
+- `download` 字段基于当前 active `outputDir` 的本地盘点结果，而不是下载任务历史
 
 ### 本地盘点命令
 
-冻结命令如下：
+命令如下：
 
 1. `get_local_inventory_snapshot() -> LocalInventorySnapshot`
 2. `rescan_local_inventory(verificationMode?: VerificationMode) -> LocalInventorySnapshot`
 3. `cancel_local_inventory_scan() -> LocalInventorySnapshot`
 
-说明：
+扫描行为：
 
-- 盘点范围首版只覆盖当前 `AppPreferences.outputDir`
-- `set_preferences()` 中 `outputDir` 变更后，应异步触发新的本地盘点
-- `set_preferences()` 不能阻塞等待盘点完成
+- `set_preferences()` 中 `outputDir` 变更后，异步触发新的本地盘点
+- `set_preferences()` 不阻塞等待盘点完成
 - 同一时刻仅允许一个 active root；新扫描请求可以覆盖旧扫描请求
 
 ### 下载任务命令
 
-冻结命令如下：
+命令如下：
 
 1. `create_download_job(request: CreateDownloadJobRequest) -> DownloadJobSnapshot`
 2. `list_download_jobs() -> DownloadManagerSnapshot`
@@ -371,38 +369,33 @@
 7. `retry_download_task(jobId: string, taskId: string) -> DownloadJobSnapshot`
 8. `clear_download_history() -> number`
 
-说明：
+建模约束：
 
-- 不再单独冻结 `enqueue_album_download`，统一通过 `create_download_job` + `kind` / `albumCid` 表达，避免双入口重复。
-- 旧 `download_song(songCid, outputDir, format, downloadLyrics) -> string` 视为兼容接口，新的实现开始后立即进入废弃状态。
+- `create_download_job` 通过 `kind` / `albumCid` 表达整专下载
 
 ### 通知偏好命令
 
-冻结命令如下：
+命令如下：
 
 1. `get_notification_preferences() -> NotificationPreferences`
 2. `set_notification_preferences(preferences: NotificationPreferences) -> NotificationPreferences`
 3. `get_notification_permission_state() -> NotificationPermissionState`
 4. `send_test_notification() -> void`
 
-说明：
+行为说明：
 
 - 通知偏好存储在应用状态中，不持久化到磁盘
 - 通知权限状态由 Tauri 通知插件返回，反映系统级权限授予情况
 - 测试通知用于验证通知管道是否正常工作
 
-**废弃预告**：以上四个命令将在偏好系统重构完成后废弃，统一由 `get_preferences` / `set_preferences` 替代。
-
-### 偏好命令（统一）
-
-**v2 命令**，替代上述通知偏好命令，并扩展覆盖下载偏好。
+### 偏好命令
 
 1. `get_preferences() -> AppPreferences`
 2. `set_preferences(preferences: AppPreferences) -> AppPreferences`
 3. `get_notification_permission_state() -> NotificationPermissionState`
 4. `send_test_notification() -> void`
 
-`set_preferences` 的验证规则：
+验证规则：
 
 - `outputFormat`：必须是 `flac` | `wav` | `mp3` 之一
 - `outputDir`：路径必须存在且为目录
@@ -412,14 +405,14 @@
 
 验证失败时返回错误字符串，命令不更新状态。
 
-存储说明：
+存储规则：
 
 - 偏好通过版本化 TOML 文件持久化到 `{app_data_dir}/preferences.toml`
 - `{app_data_dir}` 路径由 Tauri 运行时根据 `tauri.conf.json` 中的 `identifier` 决定
   - macOS：`~/Library/Application Support/{identifier}/`
   - Windows：`%APPDATA%/{identifier}/`
   - Linux：`~/.local/share/{identifier}/`
-- 文件顶层包含 `schemaVersion: integer` 字段，初始为 `1`，用于未来字段演进
+- 文件顶层包含 `schemaVersion: integer` 字段，初始值为 `1`
 - 应用启动时自动加载，缺失或损坏时使用默认值初始化并写入磁盘
 - 设置变更时同步落盘（阻塞式原子写入）
 
@@ -428,16 +421,14 @@
 1. `export_preferences(outputPath: string) -> AppPreferences`
 2. `import_preferences(inputPath: string) -> AppPreferences`
 
-说明：
+导入导出规则：
 
-- `export_preferences`：将当前偏好完整导出到用户指定的路径，返回导出后的偏好快照
-- `import_preferences`：从用户指定的 TOML 文件导入偏好，验证通过后替换当前偏好并落盘，返回导入后的偏好
-- 导入时执行与 `set_preferences` 相同的验证规则，验证失败时返回错误且不更新状态
-- 导出/导入操作用户自行指定路径，不使用固定路径
+- `export_preferences` 和 `import_preferences` 都由用户指定路径，并返回操作后的偏好快照
+- `import_preferences` 导入 TOML 后执行与 `set_preferences` 相同的验证规则；验证失败时返回错误且不更新状态
 
 ## Events
 
-冻结事件如下：
+事件如下：
 
 1. `download-manager-state-changed`，载荷为 `DownloadManagerSnapshot`
 2. `download-job-updated`，载荷为 `DownloadJobSnapshot`
@@ -445,17 +436,17 @@
 4. `local-inventory-state-changed`，载荷为 `LocalInventorySnapshot`
 5. `local-inventory-scan-progress`，载荷为 `LocalInventoryScanProgressEvent`
 
-其中：
+事件职责：
 
-- `download-manager-state-changed` 负责同步整体任务列表概览
-- `download-job-updated` 负责同步某个任务完整快照
-- `download-task-progress` 负责同步细粒度下载进度
-- `local-inventory-state-changed` 负责同步本地盘点状态与 `inventoryVersion`
-- `local-inventory-scan-progress` 负责同步本地盘点进度
+- `download-manager-state-changed` 同步任务列表概览
+- `download-job-updated` 同步任务完整快照
+- `download-task-progress` 同步细粒度下载进度
+- `local-inventory-state-changed` 同步盘点状态与 `inventoryVersion`
+- `local-inventory-scan-progress` 同步盘点进度
 
 ## 快照与事件载荷原则
 
-为降低前端状态同步复杂度，建议和播放器一致：
+为降低前端状态同步复杂度，保持与播放器一致：
 
 - 快照事件尽量发送完整结构，而不是零散 patch
 - 进度事件只在高频字段变化时发出
@@ -483,11 +474,11 @@
 - `queued | preparing | downloading | writing -> failed`
 - `queued | preparing | downloading -> cancelled`
 
-## 文件落盘与本地盘点约定
+## 文件落盘与本地盘点规则
 
-### 文件落盘约定
+### 文件落盘规则
 
-冻结规则：
+规则：
 
 - 单曲下载：默认直接落盘到 `outputDir/`
 - 整专下载：该任务下的所有歌曲统一落盘到 `outputDir/<sanitizedAlbumName>/`
@@ -496,26 +487,26 @@
 - 若同目录已存在同名 `cover.<ext>`，新下载应覆盖旧文件，避免生成 `cover (1)` 之类不稳定命名
 - 任务完成后，`DownloadTaskSnapshot.outputPath` 应指向各歌曲的实际落盘路径；专辑封面属于 Job 级附属产物，不强制建模为单独 Task
 
-### 本地盘点约定
+### 本地盘点规则
 
-冻结规则：
+规则：
 
-- 首版本地盘点只扫描当前 `AppPreferences.outputDir`
+- 本地盘点只扫描当前 `AppPreferences.outputDir`
 - 下载标记必须直接进入 `Album`、`AlbumDetail`、`SongEntry`、`SongDetail` 返回值
-- `download.isDownloaded` 是前端列表和详情的直接消费字段
-- `download.downloadStatus` 用于表达更细粒度的语义状态
+- `download.isDownloaded` 是前端直接消费字段
+- `download.downloadStatus` 表达更细粒度的语义状态
 - `isDownloaded = true` 的最低语义是“当前 active root 下已确认存在本地文件”，不是“已完成远端一致性校验”
 - `mismatch` 表示“本地存在但校验明确不一致”，属于异常态，不应被前端展示为“已下载”
 - `unverifiable` 表示“本地存在但当前无法完成可信校验”，仍属于“已下载”
 - `unknown` 只用于“存在候选线索但尚不足以确认本地已下载”的场景，不用于表达“已存在但无法校验”
 - 本地盘点优先依据确定性路径规则、扩展名和目录结构进行匹配，必要时才使用 metadata 辅助确认
-- 首版不要求对整个目录做全量 MD5 计算
+- 不要求对整个目录做全量 MD5 计算
 - `inventoryVersion` 在每次成功完成盘点后变化，用作动态缓存失效键
-- 当前 root 切换后，旧 root 的盘点结果不再作为当前前端列表的真相来源
+- root 切换后，旧结果不再作为当前前端列表的真相来源
 
-### MD5 校验约定
+### MD5 校验规则
 
-冻结规则：
+规则：
 
 - MD5 校验是可选能力，不是“已下载识别”的前置条件
 - 只有当本地最终文件与远端 checksum 指向的产物语义可比时，才允许进入直接 checksum 校验
@@ -543,7 +534,7 @@
 8. 取消语义为 best-effort，不对残留临时文件清理做对外承诺。
 9. 整专下载的文件组织方式冻结为"按专辑目录存储"，不采用输出根目录平铺。
 10. 整专下载时专辑封面作为 Job 级附属产物写入专辑目录，固定基础名为 `cover`。
-11. 偏好系统重构后，`AppPreferences` 为唯一偏好数据源，`OutputFormat` 枚举同步到前端共享类型。
+11. `AppPreferences` 是唯一偏好数据源，`OutputFormat` 枚举同步到前端共享类型。
 12. 偏好持久化使用手写 TOML 文件，不依赖外部插件。
 13. 偏好备份/恢复由用户指定文件路径，后端仅执行读写操作，不管理默认路径。
 14. 本地盘点为独立域，不并入 `DownloadService`。
@@ -551,4 +542,4 @@
 16. 前端统一读取 `download.isDownloaded` 作为列表和详情下载标记。
 17. `inventoryVersion` 是下载标记动态缓存的统一失效键。
 18. `outputDir` 改变后，后端异步自动重扫当前 active root。
-19. MD5 只做 best-effort，不作为首版能力成功与否的前置条件。
+19. MD5 只做 best-effort，不作为能力成功与否的前置条件。

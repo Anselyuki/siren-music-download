@@ -85,7 +85,6 @@ notifyOnPlaybackChange = true
 - `set_preferences()` 验证通过后自动落盘，验证失败返回错误不更新状态
 - 前端删除所有偏好相关的 localStorage 读写代码
 - 前端不再各自维护通知偏好状态，统一从后端读取
-- 新命令 `get_notification_preferences` / `set_notification_preferences` 标记废弃
 - 备份导出到用户指定路径，恢复从用户指定路径导入，均返回操作后的偏好快照
 - 恢复时验证规则同 `set_preferences`，不合法的备份文件不覆盖当前状态
 
