@@ -25,7 +25,6 @@
 - `DownloadTaskProgressEvent`
 - `LocalTrackDownloadStatus`
 - `TrackDownloadBadge`
-- `AlbumDownloadBadge`
 - `LocalInventoryStatus`
 - `VerificationMode`
 - `LocalInventorySnapshot`
@@ -36,6 +35,13 @@
 - `AlbumDetail`
 - `AppPreferences`
 - `NotificationPermissionState`
+- `LogLevel`
+- `LogFileKind`
+- `LogViewerQuery`
+- `LogViewerRecord`
+- `LogViewerPage`
+- `LogFileStatus`
+- `AppErrorEvent`
 
 ## 类型字段定义
 
@@ -202,19 +208,6 @@
 - 更细粒度语义由 `downloadStatus` 表达
 - `inventoryVersion` 用于动态缓存失效
 
-### `AlbumDownloadBadge`
-
-- `hasDownloadedTracks: boolean`
-- `downloadedTrackCount: number`
-- `verifiedTrackCount: number`
-- `mismatchTrackCount: number`
-- `inventoryVersion: string`
-
-字段边界：
-
-- `get_albums()` 不返回 `isFullyDownloaded`
-- `AlbumDownloadBadge` 不包含 `totalTrackCount` 和 `isFullyDownloaded`
-
 ### `LocalInventoryStatus`
 
 枚举值：
@@ -265,7 +258,6 @@
 - `name: string`
 - `coverUrl: string`
 - `artists: string[]`
-- `download: AlbumDownloadBadge`
 
 ### `SongEntry`
 
@@ -296,7 +288,6 @@
 - `coverDeUrl: string | null`
 - `artists: string[] | null`
 - `songs: SongEntry[]`
-- `download: AlbumDownloadBadge`
 
 ### `AppPreferences`
 
@@ -307,10 +298,84 @@
 - `downloadLyrics: boolean`
 - `notifyOnDownloadComplete: boolean`
 - `notifyOnPlaybackChange: boolean`
+- `logLevel: LogLevel`
 
 ### `NotificationPermissionState`
 
 枚举值：
+
+- `granted`
+- `denied`
+- `prompt`
+- `prompt-with-rationale`
+
+### `LogLevel`
+
+枚举值：
+
+- `debug`
+- `info`
+- `warn`
+- `error`
+
+语义：
+
+- 用作持久化日志晋升阈值
+- 应用退出时，session log 中 `level >= logLevel` 的记录写入 persistent log
+
+### `LogFileKind`
+
+枚举值：
+
+- `session`：本次运行日志，应用干净退出时删除
+- `persistent`：持久化日志，累积保留
+
+### `LogViewerQuery`
+
+- `kind: LogFileKind`
+- `level?: LogLevel | null`
+- `domain?: string | null`
+- `search?: string | null`
+- `limit?: number | null`
+- `offset?: number | null`
+
+### `LogViewerRecord`
+
+前端安全投影，不暴露后端敏感细节。
+
+- `id: string`
+- `ts: string`
+- `level: LogLevel`
+- `domain: string`
+- `code: string`
+- `message: string`
+- `details: null`（固定为 null，不暴露后端 details）
+
+### `LogViewerPage`
+
+- `records: LogViewerRecord[]`
+- `total: number`
+- `kind: LogFileKind`
+
+### `LogFileStatus`
+
+- `hasSessionLog: boolean`
+- `hasPersistentLog: boolean`
+
+### `AppErrorEvent`
+
+前端安全运行时错误事件，仅在后端标记 `frontend_event()` 时发出。
+
+- `id: string`
+- `ts: string`
+- `level: LogLevel`（仅 `warn` 或 `error`）
+- `domain: string`
+- `code: string`
+- `message: string`
+
+### `NotificationPermissionState`
+
+枚举值（已存在，保持不变）：
 
 - `granted`
 - `denied`
@@ -334,6 +399,9 @@
 - 本地盘点只允许扫描当前 active `outputDir`，不得隐式扩展到其他目录
 - 下载任务默认只允许写入当前 active `outputDir` 及其派生专辑子目录
 - 应用内部状态文件只允许写入 `{app_data_dir}`
+- session log 只允许写入 `{app_cache_dir}/logs/`
+- persistent log 只允许写入 `{app_data_dir}/logs/`
+- 日志浏览命令只允许读取应用自有的 session / persistent 日志文件，不开放任意路径浏览
 - 导入/导出命令虽然接收用户提供路径，但在实现上应视为高风险能力，不得被普通业务命令复用为通用文件读写通道
 - 若前端不需要消费绝对路径，则命令返回值、事件和错误信息不应暴露绝对本地路径
 
@@ -342,6 +410,9 @@
 - 事件与命令返回优先暴露业务语义，不暴露超出 UI 所需的本地文件系统细节
 - 进度事件中的路径字段应优先使用相对路径、标识符或可省略字段，而不是绝对路径
 - 错误字符串应避免把本地绝对路径直接回传到前端
+- 日志浏览返回 `LogViewerRecord` 前端安全投影，而不是后端完整日志记录
+- `LogViewerRecord.details` 固定为 `null`，前端 viewer 不直接暴露后端原始 details / cause chain / context
+- `app-error-recorded` 只承载前端安全字段，不作为后端完整日志明细通道
 
 实现约束：
 
@@ -363,8 +434,11 @@
 
 返回约束：
 
-- `get_albums`、`get_album_detail`、`get_song_detail` 的返回值必须包含 `download` 字段
-- `download` 字段基于当前 active `outputDir` 的本地盘点结果，而不是下载任务历史
+- `get_albums` 是轻量列表接口，不触发 per-album 详情 fan-out
+- `get_albums` 不返回专辑级下载 badge
+- `get_album_detail` 不承载专辑级聚合下载 badge
+- `get_song_detail` 的返回值必须包含 `download` 字段
+- `SongEntry.download` 继续由 `get_album_detail` 内联返回
 
 ### 本地盘点命令
 
@@ -400,6 +474,26 @@
 - `create_download_job` 通过 `kind` / `albumCid` 表达整专下载
 - 下载写入根目录应受当前 active `outputDir` 约束，不应退化为前端可随意指定的通用文件写入能力
 
+### 日志命令
+
+1. `list_log_records(query: LogViewerQuery) -> LogViewerPage`
+2. `get_log_file_status() -> LogFileStatus`
+
+行为说明：
+
+- `list_log_records` 只面向设置页日志 viewer，读取应用自有日志文件，不接收任意路径参数
+- `kind = session` 读取本次运行日志；`kind = persistent` 读取持久化日志
+- 返回值是前端安全投影，供 UI 浏览摘要，不等价于后端完整日志记录
+- `search` 只匹配前端可见字段（message / code / domain），不匹配隐藏 details
+- `limit` / `offset` 用于 viewer 分页或分批加载
+
+返回约束：
+
+- `records` 按时间倒序返回
+- `LogViewerRecord.details` 固定为 `null`
+- 不通过 viewer 命令向前端暴露后端 `details`、`context`、`causeChain` 或绝对路径
+- `get_log_file_status` 仅返回文件存在性摘要，不返回路径
+
 ### 偏好命令
 
 1. `get_preferences() -> AppPreferences`
@@ -412,6 +506,7 @@
 - 通知开关字段属于 `AppPreferences`，不再单独暴露 `NotificationPreferences`
 - 通知权限状态由 Tauri 通知插件返回，反映系统级权限授予情况
 - 测试通知用于验证通知管道是否正常工作
+- `logLevel` 属于 `AppPreferences`，用于控制 session log 退出时晋升到 persistent log 的最低等级
 
 验证规则：
 
@@ -420,6 +515,7 @@
 - `downloadLyrics`：布尔值
 - `notifyOnDownloadComplete`：布尔值
 - `notifyOnPlaybackChange`：布尔值
+- `logLevel`：必须是 `debug` | `info` | `warn` | `error` 之一
 
 验证失败时返回错误字符串，命令不更新状态。
 
@@ -455,6 +551,7 @@
 3. `download-task-progress`，载荷为 `DownloadTaskProgressEvent`
 4. `local-inventory-state-changed`，载荷为 `LocalInventorySnapshot`
 5. `local-inventory-scan-progress`，载荷为 `LocalInventoryScanProgressEvent`
+6. `app-error-recorded`，载荷为 `AppErrorEvent`
 
 事件职责：
 
@@ -463,6 +560,7 @@
 - `download-task-progress` 同步细粒度下载进度
 - `local-inventory-state-changed` 同步盘点状态与 `inventoryVersion`
 - `local-inventory-scan-progress` 同步盘点进度
+- `app-error-recorded` 向前端推送运行时错误的安全摘要，用于 toast 或日志 viewer 刷新
 
 ## 快照与事件载荷原则
 
@@ -471,6 +569,8 @@
 - 快照事件尽量发送完整结构，而不是零散 patch
 - 进度事件只在高频字段变化时发出
 - 命令返回值与事件载荷的结构保持一致
+- 运行时错误的实时通知只发送前端安全摘要，不把后端完整日志记录当作事件载荷直接广播
+- 日志文件是运行时错误的长期追溯真相源；toast / inline / panel 只是不同投影，而不是独立真相源
 
 ## 状态迁移
 
@@ -512,7 +612,8 @@
 规则：
 
 - 本地盘点只扫描当前 `AppPreferences.outputDir`
-- 下载标记必须直接进入 `Album`、`AlbumDetail`、`SongEntry`、`SongDetail` 返回值
+- 曲目级下载标记进入 `SongEntry` 与 `SongDetail` 返回值
+- `get_albums` 与 `get_album_detail` 不再内联专辑级 badge
 - `download.isDownloaded` 是前端直接消费字段
 - `download.downloadStatus` 表达更细粒度的语义状态
 - `isDownloaded = true` 的最低语义是“当前 active root 下已确认存在本地文件”，不是“已完成远端一致性校验”

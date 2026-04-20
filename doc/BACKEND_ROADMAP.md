@@ -6,6 +6,12 @@
 >
 > 共享类型、命令、事件和状态机规则以 [BACKEND_API_CONTRACT.md](BACKEND_API_CONTRACT.md) 为唯一事实来源。
 
+## 已新增并保持的基础能力
+
+1. **统一日志中心**：后端已具备结构化日志记录、session / persistent 双层日志文件、运行时错误安全事件和设置页日志浏览支撑。
+2. **运行时错误补盲**：播放器流式下载、解码、音频输出、媒体会话和系统通知等运行时错误已纳入统一日志中心，而不再只依赖 `eprintln!`。
+3. **日志偏好联动**：`AppPreferences.logLevel` 已作为 session log 退出时晋升到 persistent log 的阈值。
+
 ## 当前缺少的后端能力
 
 1. **本地已下载文件盘点与下载标记**：当前后端无法基于当前 `outputDir` 可靠回答“某首歌/某张专辑是否已在本地存在”，前端列表也拿不到可直接消费的下载标记。
@@ -46,6 +52,7 @@ pub(crate) struct AppPreferences {
     pub(crate) download_lyrics: bool,
     pub(crate) notify_on_download_complete: bool,
     pub(crate) notify_on_playback_change: bool,
+    pub(crate) log_level: String,        // "debug" | "info" | "warn" | "error"
 }
 ```
 
@@ -58,6 +65,7 @@ outputDir = "/path/to/downloads"
 downloadLyrics = true
 notifyOnDownloadComplete = true
 notifyOnPlaybackChange = true
+logLevel = "error"
 ```
 
 #### 备份与恢复

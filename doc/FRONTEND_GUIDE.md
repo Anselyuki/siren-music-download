@@ -31,14 +31,14 @@
 
 | 组件 | 职责 |
 |------|------|
-| `App.svelte` | 应用入口，负责专辑加载、播放状态同步、下载状态同步、各类面板编排 |
+| `App.svelte` | 应用入口，负责专辑加载、播放状态同步、下载状态同步、运行时错误事件接入和各类面板编排 |
 | `AlbumSidebar.svelte` | 左侧专辑导航容器，内部渲染 `AlbumCard.svelte` |
 | `TopToolbar.svelte` | 顶部工具栏，提供刷新、下载任务入口、设置入口和活动下载数量 badge |
 | `AlbumWorkspace.svelte` | 主内容区容器，包裹专辑舞台、专辑信息和曲目列表滚动区 |
 | `SongRow.svelte` | 曲目行；默认点击播放，进入多选模式后改为点击勾选 |
 | `PlayerDock.svelte` | 底部 Dock 容器，内部承载 `AudioPlayer.svelte` |
 | `AudioPlayer.svelte` | 播放器主体，包含播放控制、进度、乱序/循环、歌词/队列切换和当前歌曲下载入口 |
-| `SettingsSheet.svelte` | 右侧设置面板，负责下载参数、通知偏好和缓存清理 |
+| `SettingsSheet.svelte` | 右侧设置面板，负责下载参数、通知偏好、日志等级、日志浏览和缓存清理 |
 | `DownloadTasksSheet.svelte` | 右侧下载任务面板，负责任务列表、进度、失败项、取消/重试和历史清理 |
 | `StatusToastHost.svelte` | 顶部 toast 宿主，替代同步 `alert()` 反馈 |
 
@@ -258,13 +258,33 @@ if (import.meta.hot) {
 建立通信网关层：
 - 创建领域服务文件（如 `src/lib/api.ts` 或 `features/*/service.ts`）封装 Tauri IPC
 - UI 仅绑定服务层暴露的响应式状态或调用服务层暴露的方法
+- 日志 viewer 只通过 `listLogRecords()` / `getLogFileStatus()` 读取设置页所需摘要，不新增任意路径读文件能力
 
 ### 下载标记与缓存规则
 
-- `getAlbums()`、`getAlbumDetail()`、`getSongDetail()` 返回值中的 `download` 字段属于动态数据
+- `getAlbums()` 返回轻量 `Album[]`
+- `getAlbumDetail()` / `getSongDetail()` 返回值中的曲目级 `download` 字段属于动态数据
 - 一旦后端引入 `inventoryVersion`，前端缓存 key 必须纳入该版本，或在本地盘点事件后主动清理相关缓存
 - 不允许在缓存中长期保留脱离当前 `inventoryVersion` 的 `AlbumDetail` / `SongDetail`
-- 收到 `local-inventory-state-changed` 且 `inventoryVersion` 变化后，前端应刷新专辑列表、专辑详情和歌曲详情相关缓存/状态
+- 收到 `local-inventory-state-changed` 且 `inventoryVersion` 变化后，前端应立即清理专辑详情和歌曲详情相关缓存；完成扫描后再刷新数据
+
+### 日志与运行时错误反馈
+
+- `App.svelte` 统一订阅 `app-error-recorded` 事件，把后端运行时错误的前端安全摘要接入壳层
+- 默认反馈方式仍以 toast 为主；若设置面板处于打开状态，同时刷新当前日志 viewer
+- `SettingsSheet.svelte` 中的日志区负责两类能力：
+  1. 调整 `logLevel`
+  2. 浏览 `session` / `persistent` 两类日志摘要
+- 日志 viewer 通过 `listLogRecords()` 与 `getLogFileStatus()` 读取数据，不直接读取本地文件
+- viewer 只消费 `LogViewerRecord` 前端安全投影，不依赖后端原始 details / cause chain / context
+- `logRecords` 按时间倒序展示，`kind` 切换只影响当前查看的日志层，不改变后端记录策略
+- toast、inline 错误位、下载面板和日志 viewer 可以并存，但长期追溯应以日志中心为准，不在前端维护第二套“历史错误真相”
+
+### IPC 补充约束
+
+- `app-error-recorded` 只用于运行时错误摘要广播，不承载完整后端日志明细
+- UI 不应假设 `LogViewerRecord.details` 一定存在；当前契约下应按摘要 viewer 处理
+- 需要用户即时感知的运行时错误走 toast；需要回溯时由设置页日志 viewer 提供入口
 
 ## 6. 交互模式
 
@@ -279,7 +299,6 @@ if (import.meta.hot) {
 
 ### 下载标记消费规则
 
-- 专辑列表直接消费 `Album.download`
 - 专辑详情曲目列表直接消费 `SongEntry.download.isDownloaded`
 - 当前歌曲详情或播放器关联区直接消费 `SongDetail.download`
 - 前端不得自己以下载任务历史或本地临时映射推导“是否已下载”，统一以后端内容接口返回的 `download` 字段为准
@@ -379,7 +398,6 @@ App.svelte
 
 - [ ] 首屏可加载专辑列表
 - [ ] 切换专辑后详情刷新正常
-- [ ] 专辑列表下载标记正常
 - [ ] 曲目列表下载标记正常
 - [ ] 切换下载目录后下载标记可重建
 - [ ] 单曲播放 / 暂停 / 恢复 / seek 正常
