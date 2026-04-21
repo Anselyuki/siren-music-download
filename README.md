@@ -75,7 +75,8 @@ cargo check --workspace
 
 - [前端开发指南](./doc/FRONTEND_GUIDE.md)
 - [后端 API 契约](./doc/BACKEND_API_CONTRACT.md)
-- [后端规划](./doc/BACKEND_ROADMAP.md)
+- [后端已完成阶段](./doc/BACKEND_COMPLETED_PHASES.md)
+- [后端待办阶段](./doc/BACKEND_PENDING_PHASES.md)
 - [Release 流程](./doc/RELEASE_PROCESS.md)
 
 发布约定与版本标记方式见 [Release 流程](./doc/RELEASE_PROCESS.md)。

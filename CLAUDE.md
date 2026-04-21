@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 - 技术栈：Rust + Tauri 2 + Vite + Svelte 5
 - 形态：跨平台桌面应用（macOS / Windows / Linux）
-- 当前重点：M1–M5-a/b 已完成，当前主界面已切换到新的 UI shell，并具备系统通知、统一偏好系统与远程封面解析链路
+- 当前重点：Phase 1–7 已完成，Phase 8 已交付首版本地盘点与下载标记能力，当前主要在补齐校验链与后续历史/缓存能力
 
 ## 常用命令
 
@@ -121,6 +121,8 @@ Cargo workspace
 - `cancel_local_inventory_scan`
 - `get_notification_permission_state`
 - `send_test_notification`
+- `list_log_records`
+- `get_log_file_status`
 
 播放器事件：
 
@@ -132,45 +134,26 @@ Cargo workspace
 - `download-manager-state-changed`
 - `download-job-updated`
 - `download-task-progress`
+- `local-inventory-state-changed`
+- `local-inventory-scan-progress`
+- `app-error-recorded`
 
 ## 文档结构
 
 - `README.md`：项目介绍、使用方式、构建命令
 - `doc/BACKEND_API_CONTRACT.md`：后端类型、命令、事件的唯一契约来源
-- `doc/BACKEND_ROADMAP.md`：后端未来规划（Phase 6/7）
+- `doc/BACKEND_COMPLETED_PHASES.md`：后端已完成阶段（Phase 1~7 与 Phase 8 基线）
+- `doc/BACKEND_PENDING_PHASES.md`：后端待办阶段（Phase 8 剩余增强项与 Phase 9~11）
 - `doc/FRONTEND_GUIDE.md`：前端架构、开发约定与验收基线
 - `doc/DECISIONS.md`：技术选型决策记录（ADR）
 - `doc/RELEASE_PROCESS.md`：CI 与发布流程
 
 ## 当前实现状态
 
-### 已完成
-
-- 专辑列表和曲目详情加载
-- Tauri command + event 通信链路
-- 在线播放、暂停、恢复、拖动进度
-- 上一首 / 下一首
-- 当前专辑上下文播放
-- 播放列表乱序、列表循环 / 单曲循环
-- 底部播放器、歌词面板、播放队列面板
-- 系统媒体会话同步
-- 封面主题色提取
-- 流式播放缓存与缓存清理
-- 当前播放曲目和专辑曲目行的单曲下载
-- 歌词文本拉取与 `.lrc` 同目录保存开关
-- FLAC 元数据和封面写入
-- **M1** 下载任务领域模型、DownloadService、单曲任务化、新 commands / events
-- **M2** 整专下载、专辑封面落盘、下载进度事件推送、前端总进度展示、专辑页批量下载入口、重复创建保护
-- **M3** 任务取消、重试、历史清理、结构化错误码与详情、独立下载面板 UI
-- **M4** 系统通知集成（下载完成通知、播放切换通知、通知权限检查与测试通知）
-- **M5-a** 批量选择管理 UI（全选、清空、反选按钮）
-- **M5-b** 流水线下载优化（download/write 两阶段流水线，整专下载吞吐提升）
-- **Phase 5** 统一偏好系统（`AppPreferences` + `preferences.toml` 持久化 + 导入导出）
-
-### 未完成
-
-- **Phase 6** 本地已下载盘点与下载标记（当前进行中）
-- M5 其他切片：搜索/过滤、下载历史视图增强、session 持久化
+- **已完成**：Phase 1–7，Phase 8 基线
+- **进行中 / 未完成**：Phase 8 剩余增强项，Phase 9，Phase 10，Phase 11
+- **已完成阶段明细**：见 `doc/BACKEND_COMPLETED_PHASES.md`
+- **待办阶段明细**：见 `doc/BACKEND_PENDING_PHASES.md`
 
 ## 代码层约定
 

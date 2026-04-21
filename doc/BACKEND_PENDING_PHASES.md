@@ -1,112 +1,23 @@
-# 后端后续规划
+# 后端待办阶段
 
-> 仅面向未来的后端规划，不含已完成里程碑。
+> 仅面向未来或尚未完成的后端阶段规划。
 >
-> 已完成的后端能力（M1~M5b）参见 CLAUDE.md"当前实现状态"章节。
+> 已完成的后端能力（Phase 1~7）与 Phase 8 基线，参见 [BACKEND_COMPLETED_PHASES.md](BACKEND_COMPLETED_PHASES.md)。
 >
 > 共享类型、命令、事件和状态机规则以 [BACKEND_API_CONTRACT.md](BACKEND_API_CONTRACT.md) 为唯一事实来源。
 
-## 已新增并保持的基础能力
+## 当前剩余的后端能力缺口
 
-1. **统一日志中心**：后端已具备结构化日志记录、session / persistent 双层日志文件、运行时错误安全事件和设置页日志浏览支撑。
-2. **运行时错误补盲**：播放器流式下载、解码、音频输出、媒体会话和系统通知等运行时错误已纳入统一日志中心，而不再只依赖 `eprintln!`。
-3. **日志偏好联动**：`AppPreferences.logLevel` 已作为 session log 退出时晋升到 persistent log 的阈值。
+1. **Phase 8 的校验链补全**：当前本地盘点首版主要基于文件名与目录结构做 detected/unverifiable 识别，`verified` / `mismatch` / `partial`、专辑级聚合 badge、MD5 best-effort 和 provenance 映射仍未落地。
+2. **Phase 9** 缓存替换方案：当前仍缺少分层缓存、按 key 失效、命中率统计、音频缓存容量上限与 siren-core HTTP 层 LRU 等能力。
+3. **Phase 10** 下载 session 持久化：当前下载任务状态仍是内存态，应用重启后历史和队列都会丢失。
+4. **Phase 11** 搜索 / 过滤 / 历史视图增强的后端支撑：当前 `list_download_jobs()` 返回完整快照，现阶段足够，但如果历史量变大，后端可能需要提供摘要、筛选或分页能力。
 
-## 当前缺少的后端能力
+## Phase 8：本地已下载盘点与下载标记（第二阶段补全项）
 
-1. **本地已下载文件盘点与下载标记**：当前后端无法基于当前 `outputDir` 可靠回答“某首歌/某张专辑是否已在本地存在”，前端列表也拿不到可直接消费的下载标记。
-2. **下载 session 持久化**：当前下载任务状态仍是内存态，应用重启后历史和队列都会丢失。
-3. **搜索 / 过滤 / 历史视图增强的后端支撑**：当前 `list_download_jobs()` 返回完整快照，现阶段足够，但如果历史量变大，后端可能需要提供摘要、筛选或分页能力。
-
-## Phase 5：统一偏好系统
-
-### 目标
-
-用统一的 `AppPreferences` 模型替代分散的偏好存储，解决偏好散落在内存/localStorage/API 三个地方的问题。
-
-### 现状痛点
-
-| 问题 | 涉及文件 |
-|------|---------|
-| 偏好分散：通知偏好(内存)、歌词偏好(localStorage)、格式/路径(无持久化) | `App.svelte`、`app_state.rs` |
-| 存储策略不统一：通知偏好双写(localStorage + Rust)，其他偏好各自为政 | `App.svelte` `$effect` |
-| 命令粒度过细：通知偏好需 4 个命令 | `commands/preferences.rs` |
-| 偏好不跨会话保留：应用重启后通知偏好丢失 | `AppState` |
-
-### 架构设计
-
-```
-[前端]  →  get_preferences() / set_preferences(AppPreferences)
-              ↓
-      [AppState.preferences: Arc<Mutex<AppPreferences>>]
-              ↓ (同步)
-      [preferences.toml 原子写入]
-```
-
-#### AppPreferences 模型
-
-```rust
-pub(crate) struct AppPreferences {
-    pub(crate) output_format: String,    // "flac" | "wav" | "mp3"
-    pub(crate) output_dir: String,
-    pub(crate) download_lyrics: bool,
-    pub(crate) notify_on_download_complete: bool,
-    pub(crate) notify_on_playback_change: bool,
-    pub(crate) log_level: String,        // "debug" | "info" | "warn" | "error"
-}
-```
-
-TOML 文件结构（写入 `{app_data_dir}/preferences.toml`）：
-
-```toml
-schemaVersion = 1
-outputFormat = "flac"
-outputDir = "/path/to/downloads"
-downloadLyrics = true
-notifyOnDownloadComplete = true
-notifyOnPlaybackChange = true
-logLevel = "error"
-```
-
-#### 备份与恢复
-
-- `export_preferences(outputPath)`：将当前偏好写入用户指定路径，返回写入后的偏好快照
-- `import_preferences(inputPath)`：从用户指定路径读取 TOML，验证通过后替换当前偏好并落盘，返回导入后的偏好
-- 导入验证规则同 `set_preferences`，验证失败时返回错误且不更新状态
-
-#### 验证规则
-
-- `outputFormat`：必须是 `flac` | `wav` | `mp3`
-- `outputDir`：路径必须存在且为目录
-- 其余字段：布尔值
-
-### 涉及文件
-
-- `src-tauri/src/preferences.rs` — 新增偏好读写模块（TOML 解析/序列化、原子写入）
-- `src-tauri/src/app_state.rs` — 添加 `AppPreferences` 结构体，持有一份 `Arc<Mutex<AppPreferences>>` 和 `preferences.rs` 句柄
-- `src-tauri/src/commands/preferences.rs` — 实现 `get_preferences`、`set_preferences`、`export_preferences`、`import_preferences`
-- `src-tauri/src/main.rs` — 初始化偏好持久化
-
-### 完成定义
-
-- `get_preferences()` 启动时从 `preferences.toml` 加载，缺失则用默认值
-- `set_preferences()` 验证通过后自动落盘，验证失败返回错误不更新状态
-- 前端删除所有偏好相关的 localStorage 读写代码
-- 前端不再各自维护通知偏好状态，统一从后端读取
-- 备份导出到用户指定路径，恢复从用户指定路径导入，均返回操作后的偏好快照
-- 恢复时验证规则同 `set_preferences`，不合法的备份文件不覆盖当前状态
-
-### 验证项
-
-1. 修改任意偏好项并关闭应用，重启后偏好保留原值
-2. 设置不合法的 `outputDir`（不存在/非目录）时返回验证错误
-3. 设置不合法的 `outputFormat` 时返回验证错误
-4. 偏好变更自动落盘，不阻塞命令响应
-5. 导出备份到指定路径，文件内容为完整 `preferences.toml`
-6. 导入有效备份后，当前偏好被覆盖
-7. 导入非法备份（路径不存在、格式错误、验证失败）时，当前偏好不变，返回错误
-
-## Phase 6：本地已下载盘点与下载标记
+> 当前已完成首版盘点基线：扫描 active `outputDir`、返回曲目级下载标记、暴露盘点命令与事件，并在 `outputDir` 变化后自动重扫。
+>
+> 本章节聚焦的是 Phase 8 剩余的校验增强项，而不是从零开始实现整套盘点能力。
 
 ### 目标
 
@@ -153,6 +64,34 @@ logLevel = "error"
 10. 为 `strict` 模式补齐落地语义：显式产出 `unverifiable`，而不是把“已存在但无法校验”折叠到 `detected`。
 11. 明确 provenance 失效规则：文件被外部修改、覆盖或摘要漂移后，已有映射不得继续用于“来源已验证”结论。
 
+### 实施 checklist
+
+- [ ] **步骤 1：补齐状态模型落地**
+  - [ ] 在 `siren-core` 中为 `verified` / `mismatch` / `partial` / `unverifiable` 增加明确的 badge 构造入口，而不是只依赖 detected/missing 快捷路径
+  - [ ] 保持 `isDownloaded` 布尔映射不变，只扩展 `downloadStatus` 的实际产出能力
+  - [ ] 明确专辑级聚合状态与曲目级状态之间的映射规则，避免前后端各自推导
+
+- [ ] **步骤 2：把扫描结果从“路径集合”升级为“证据对象”**
+  - [ ] 让扫描阶段输出结构化证据，而不仅是 `relative_audio_paths`
+  - [ ] 证据至少包含：相对路径、文件大小、mtime、候选 checksum、命中规则、是否位于专辑目录
+  - [ ] 为后续 `verified` / `mismatch` / `partial` 判断预留字段，避免再次推翻扫描结果结构
+
+- [ ] **步骤 3：接入 checksum / provenance 校验链**
+  - [ ] 先确认上游 checksum 的实际可用性、语义与稳定性，明确哪些场景可以直接比对
+  - [ ] 在下载链路写入 provenance 映射，在重扫链路消费 provenance 映射
+  - [ ] provenance 存储保持为本地盘点独立模块，不并入 `DownloadService`
+  - [ ] 明确 provenance 失效条件：文件摘要漂移、外部覆盖、外部修改后不再沿用旧结论
+
+- [ ] **步骤 4：补专辑级聚合 badge**
+  - [ ] 增加专辑级聚合类型与聚合规则
+  - [ ] 至少覆盖：全缺失、部分存在、全部已下载、存在 mismatch / unverifiable 等异常态
+  - [ ] 保持列表接口与详情接口的聚合语义一致，避免同一专辑在不同视图出现冲突状态
+
+- [ ] **步骤 5：补测试与文档同步**
+  - [ ] 单测覆盖状态映射、候选匹配、strict 模式、provenance 失效规则
+  - [ ] 集成测试覆盖 `outputDir` 切换、重扫、文件被篡改后的重新判定
+  - [ ] 同步更新 `BACKEND_API_CONTRACT.md`、`FRONTEND_GUIDE.md`、`README.md` 与 rustdoc
+
 ### 涉及文件
 
 - `crates/siren-core/src/api.rs`
@@ -190,7 +129,7 @@ logLevel = "error"
 7. 对已建立 provenance 映射的转码产物，可在不直接比较最终文件与远端原始 MD5 的前提下判定来源一致。
 8. 对已建立 provenance 映射的产物，在文件摘要变化后重新扫描，不再返回 `verified`。
 
-## Phase 7：缓存替换方案
+## Phase 9：缓存替换方案
 
 ### 目标
 
@@ -301,7 +240,7 @@ logLevel = "error"
 4. 封面缓存清理在后台执行，不阻塞通知展示
 5. siren-core 对相同请求（相同 method + path + params）的第二次调用不走网络
 
-## Phase 8（原 Phase 6）：下载 session 持久化
+## Phase 10：下载 session 持久化
 
 ### 目标
 
@@ -357,7 +296,7 @@ logLevel = "error"
 4. 清理历史后再次重启，已清理记录不会重新出现。
 5. 人工破坏状态文件，应用仍可启动并回退到空历史。
 
-## Phase 9（原 Phase 7）：搜索 / 过滤 / 历史视图后端支撑（条件触发）
+## Phase 11：搜索 / 过滤 / 历史视图后端支撑（条件触发）
 
 ### 触发条件
 
@@ -404,11 +343,11 @@ logLevel = "error"
 
 ## 建议执行顺序
 
-1. **优先实现 Phase 5（统一偏好系统）**。偏好分散存储问题已在日常使用中造成不一致体验，且改动范围可控。
-2. **紧接着实现 Phase 6（本地已下载盘点与下载标记）**。它直接支撑前端列表/详情下载态，也是 `outputDir` 切换体验的关键。
-3. Phase 7（缓存替换方案）需要把 `inventoryVersion` 纳入缓存失效策略。
-4. Phase 8（session 持久化）与 Phase 6 涉及不同领域，可并行或交叉进行。
-5. 持久化落地后，再根据真实历史规模决定是否进入 Phase 9。
+1. **优先实现 Phase 7（统一偏好系统）**。偏好分散存储问题已在日常使用中造成不一致体验，且改动范围可控。
+2. **紧接着实现 Phase 8（本地已下载盘点与下载标记）**。它直接支撑前端列表/详情下载态，也是 `outputDir` 切换体验的关键。
+3. Phase 9（缓存替换方案）需要把 `inventoryVersion` 纳入缓存失效策略。
+4. Phase 10（session 持久化）与 Phase 8 涉及不同领域，可并行或交叉进行。
+5. 持久化落地后，再根据真实历史规模决定是否进入 Phase 11。
 6. 搜索 / 过滤 / 历史视图若在当前数据量下可由前端直接完成，则后端继续保持现状。
 
 ## 暂不纳入后端计划的事项

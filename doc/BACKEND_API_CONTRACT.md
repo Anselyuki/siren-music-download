@@ -4,7 +4,8 @@
 
 相关文档：
 
-- [BACKEND_ROADMAP.md](BACKEND_ROADMAP.md)：后端未来规划（Phase 5~9）
+- [BACKEND_COMPLETED_PHASES.md](BACKEND_COMPLETED_PHASES.md)：后端已完成阶段（Phase 1~7 与 Phase 8 基线）
+- [BACKEND_PENDING_PHASES.md](BACKEND_PENDING_PHASES.md)：后端待办阶段（Phase 8 剩余增强项与 Phase 9~11）
 - [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md)：前端架构与开发指南
 
 ## 共享类型
@@ -195,6 +196,11 @@
 
 - `isDownloaded = true` 对应 `detected | verified | partial | unverifiable`
 - `isDownloaded = false` 对应 `missing | mismatch | unknown`
+
+当前实现说明：
+
+- 当前首版盘点实现已稳定产出 `missing`、`detected`，以及 `strict` 模式下的 `unverifiable`
+- `verified` / `mismatch` / `partial` 是已冻结的目标语义，但截至当前版本仍属于后续 Phase 8 增强项，尚未在扫描链路中实际产出
 
 ### `TrackDownloadBadge`
 
