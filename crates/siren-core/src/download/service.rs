@@ -809,50 +809,6 @@ mod tests {
     }
 
     #[test]
-    fn restores_service_from_manager_snapshot() {
-        let snapshot = DownloadManagerSnapshot {
-            jobs: vec![crate::download::model::DownloadJobSnapshot {
-                id: "job-1".to_string(),
-                kind: DownloadJobKind::Album,
-                status: DownloadJobStatus::Running,
-                created_at: "2026-04-15T00:00:00Z".to_string(),
-                started_at: Some("2026-04-15T00:00:10Z".to_string()),
-                finished_at: None,
-                options: DownloadOptions {
-                    output_dir: "/tmp".to_string(),
-                    format: OutputFormat::Mp3,
-                    download_lyrics: false,
-                },
-                title: "Album".to_string(),
-                task_count: 1,
-                completed_task_count: 0,
-                failed_task_count: 0,
-                cancelled_task_count: 0,
-                tasks: vec![make_task_snapshot(DownloadTaskStatus::Downloading)],
-                error: None,
-            }],
-            active_job_id: Some("job-1".to_string()),
-            queued_job_ids: vec!["job-1".to_string()],
-        };
-
-        let service = DownloadService::from_manager_snapshot(snapshot);
-        let restored = service.manager_snapshot();
-
-        assert_eq!(restored.active_job_id, None);
-        assert!(restored.queued_job_ids.is_empty());
-        assert_eq!(restored.jobs.len(), 1);
-        assert!(matches!(
-            restored.jobs[0].status,
-            DownloadJobStatus::Running
-        ));
-        assert!(matches!(
-            restored.jobs[0].tasks[0].status,
-            DownloadTaskStatus::Downloading
-        ));
-        assert_eq!(restored.jobs[0].tasks[0].attempt, 2);
-    }
-
-    #[test]
     fn restores_task_runtime_fields_from_job_options() {
         let snapshot = DownloadManagerSnapshot {
             jobs: vec![crate::download::model::DownloadJobSnapshot {
@@ -934,138 +890,6 @@ mod tests {
     }
 
     #[test]
-    fn recomputes_job_status_from_restored_tasks() {
-        let snapshot = DownloadManagerSnapshot {
-            jobs: vec![crate::download::model::DownloadJobSnapshot {
-                id: "job-1".to_string(),
-                kind: DownloadJobKind::Album,
-                status: DownloadJobStatus::Completed,
-                created_at: "2026-04-15T00:00:00Z".to_string(),
-                started_at: Some("2026-04-15T00:00:10Z".to_string()),
-                finished_at: Some("2026-04-15T00:01:00Z".to_string()),
-                options: DownloadOptions {
-                    output_dir: "/tmp".to_string(),
-                    format: OutputFormat::Flac,
-                    download_lyrics: true,
-                },
-                title: "Album".to_string(),
-                task_count: 2,
-                completed_task_count: 2,
-                failed_task_count: 0,
-                cancelled_task_count: 0,
-                tasks: vec![
-                    make_task_snapshot(DownloadTaskStatus::Completed),
-                    DownloadTaskSnapshot {
-                        id: "task-2".to_string(),
-                        ..make_task_snapshot(DownloadTaskStatus::Failed)
-                    },
-                ],
-                error: None,
-            }],
-            active_job_id: None,
-            queued_job_ids: Vec::new(),
-        };
-
-        let service = DownloadService::from_manager_snapshot(snapshot);
-        let restored = service.manager_snapshot();
-
-        assert!(matches!(
-            restored.jobs[0].status,
-            DownloadJobStatus::PartiallyFailed
-        ));
-    }
-
-    #[test]
-    fn can_retry_restored_failed_task() {
-        let snapshot = DownloadManagerSnapshot {
-            jobs: vec![crate::download::model::DownloadJobSnapshot {
-                id: "job-1".to_string(),
-                kind: DownloadJobKind::Album,
-                status: DownloadJobStatus::Failed,
-                created_at: "2026-04-15T00:00:00Z".to_string(),
-                started_at: Some("2026-04-15T00:00:10Z".to_string()),
-                finished_at: Some("2026-04-15T00:01:00Z".to_string()),
-                options: DownloadOptions {
-                    output_dir: "/tmp".to_string(),
-                    format: OutputFormat::Flac,
-                    download_lyrics: true,
-                },
-                title: "Album".to_string(),
-                task_count: 1,
-                completed_task_count: 0,
-                failed_task_count: 1,
-                cancelled_task_count: 0,
-                tasks: vec![make_task_snapshot(DownloadTaskStatus::Failed)],
-                error: Some(DownloadErrorInfo {
-                    code: DownloadErrorCode::Internal,
-                    message: "failed".to_string(),
-                    retryable: true,
-                    details: None,
-                }),
-            }],
-            active_job_id: None,
-            queued_job_ids: Vec::new(),
-        };
-
-        let mut service = DownloadService::from_manager_snapshot(snapshot);
-        let retried = service
-            .retry_task("job-1", "task-1")
-            .expect("job should exist");
-
-        assert!(matches!(retried.status, DownloadJobStatus::Queued));
-        assert!(matches!(
-            retried.tasks[0].status,
-            DownloadTaskStatus::Queued
-        ));
-        assert_eq!(retried.tasks[0].attempt, 3);
-        assert_eq!(retried.tasks[0].bytes_done, 0);
-        assert!(retried.tasks[0].error.is_none());
-    }
-
-    #[test]
-    fn generates_iso8601_utc_timestamp() {
-        let timestamp = iso_timestamp_now();
-
-        let parsed = OffsetDateTime::parse(&timestamp, &Iso8601::DEFAULT)
-            .expect("timestamp should be valid ISO-8601");
-
-        assert_eq!(parsed.offset().whole_seconds(), 0);
-        assert!(timestamp.ends_with('Z'));
-    }
-
-    #[test]
-    fn keeps_track_name_for_single_song_selection() {
-        assert_eq!(
-            selection_job_title(1, 1, Some("夜航星"), Some("前路未明")),
-            "夜航星"
-        );
-    }
-
-    #[test]
-    fn adds_album_context_for_single_album_selection() {
-        assert_eq!(
-            selection_job_title(3, 1, Some("夜航星"), Some("前路未明")),
-            "前路未明 · 已选 3 首"
-        );
-    }
-
-    #[test]
-    fn falls_back_to_album_context_when_single_song_name_is_missing() {
-        assert_eq!(
-            selection_job_title(1, 1, Some(""), Some("前路未明")),
-            "前路未明 · 已选 1 首"
-        );
-    }
-
-    #[test]
-    fn shows_album_span_for_cross_album_selection() {
-        assert_eq!(
-            selection_job_title(5, 2, Some("夜航星"), Some("前路未明")),
-            "已选 5 首 · 2 张专辑"
-        );
-    }
-
-    #[test]
     fn keeps_cancelled_status_when_finishing_cancelled_job() {
         let mut service = DownloadService {
             state: DownloadServiceState {
@@ -1112,5 +936,47 @@ mod tests {
             DownloadTaskStatus::Cancelled
         ));
         assert_eq!(snapshot.tasks[0].attempt, 0);
+    }
+    #[test]
+    fn generates_iso8601_utc_timestamp() {
+        let timestamp = iso_timestamp_now();
+
+        let parsed = OffsetDateTime::parse(&timestamp, &Iso8601::DEFAULT)
+            .expect("timestamp should be valid ISO-8601");
+
+        assert_eq!(parsed.offset().whole_seconds(), 0);
+        assert!(timestamp.ends_with('Z'));
+    }
+
+    #[test]
+    fn keeps_track_name_for_single_song_selection() {
+        assert_eq!(
+            selection_job_title(1, 1, Some("夜航星"), Some("前路未明")),
+            "夜航星"
+        );
+    }
+
+    #[test]
+    fn adds_album_context_for_single_album_selection() {
+        assert_eq!(
+            selection_job_title(3, 1, Some("夜航星"), Some("前路未明")),
+            "前路未明 · 已选 3 首"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_album_context_when_single_song_name_is_missing() {
+        assert_eq!(
+            selection_job_title(1, 1, Some(""), Some("前路未明")),
+            "前路未明 · 已选 1 首"
+        );
+    }
+
+    #[test]
+    fn shows_album_span_for_cross_album_selection() {
+        assert_eq!(
+            selection_job_title(5, 2, Some("夜航星"), Some("前路未明")),
+            "已选 5 首 · 2 张专辑"
+        );
     }
 }

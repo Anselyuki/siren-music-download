@@ -25,28 +25,23 @@
 //!
 //! # 生成 rustdoc
 //!
-//! 因为 Tauri 命令定义在二进制目标里，请使用：
+//! 当前 `main.rs` 只负责 Tauri 启动与 wiring；命令与后端模块定义位于 library target。
+//! 如需查看二进制入口文档，请使用：
 //!
 //! ```bash
 //! cargo doc -p siren-music-download --bin siren-music-download --no-deps --document-private-items
 //! ```
-
-mod app_state;
-mod audio_cache;
-mod commands;
-mod download_session;
-mod downloads;
-mod local_inventory;
-mod local_inventory_provenance;
-mod logging;
-mod notification;
-mod player;
-mod preferences;
-mod theme;
+//!
+//! 如需查看后端模块与命令定义，请使用：
+//!
+//! ```bash
+//! cargo doc -p siren-music-download --lib --no-deps --document-private-items
+//! ```
 
 use anyhow::Context;
-use app_state::AppState;
-use logging::{LogLevel, LogPayload};
+use siren_music_download::{
+    commands, initialize_download_bridge, spawn_inventory_scan, AppState, LogLevel, LogPayload,
+};
 use tauri::{LogicalSize, Manager, RunEvent, WebviewWindow};
 
 const PLAYER_BAR_SAFE_WINDOW_WIDTH: f64 = 1120.0;
@@ -106,7 +101,7 @@ fn main() {
             let state =
                 AppState::new(app.handle().clone()).expect("Failed to initialize app state");
             if let Err(error) = fit_main_window_to_monitor(&window) {
-                state.log_center.record(
+                state.record_log(
                     LogPayload::new(
                         LogLevel::Warn,
                         "window",
@@ -116,26 +111,22 @@ fn main() {
                     .details(error.to_string()),
                 );
             }
-            let media_state = state.clone();
-            if let Err(error) = state
-                .player
-                .bind_media_controls(move |event| media_state.handle_media_control(event))
-            {
-                state.log_center.record(
+            if let Err(error) = state.bind_media_controls() {
+                state.record_log(
                     LogPayload::new(
                         LogLevel::Warn,
                         "media-session",
                         "media_session.bind_failed",
                         "Failed to bind media controls",
                     )
-                    .details(format!("{error:#}")),
+                    .details(error),
                 );
             }
-            downloads::bridge::initialize(app.handle(), &state);
-            local_inventory::spawn_inventory_scan(
+            initialize_download_bridge(app.handle(), &state);
+            spawn_inventory_scan(
                 app.handle().clone(),
                 state.clone(),
-                state.preferences().output_dir,
+                state.output_dir(),
                 None,
             );
             app.manage(state);
@@ -190,10 +181,8 @@ fn main() {
         .run(|app_handle, event| match event {
             RunEvent::ExitRequested { .. } | RunEvent::Exit => {
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    let threshold =
-                        LogLevel::parse(&state.preferences().log_level).unwrap_or(LogLevel::Error);
-                    if let Err(error) = state.log_center.flush_session_to_persistent(threshold) {
-                        eprintln!("[logging] failed to flush session logs: {error:#}");
+                    if let Err(error) = state.flush_logs_on_exit() {
+                        eprintln!("[logging] failed to flush session logs: {error}");
                     }
                 }
             }

@@ -5,6 +5,9 @@ edition = "2021"
 description = "Cross-platform lossless music downloader for Monster Siren Records"
 license = "MIT"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "siren-music-download"
 path = "src/main.rs"

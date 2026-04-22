@@ -16,7 +16,7 @@ use tauri::Manager;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
-pub(crate) struct AppState {
+pub struct AppState {
     pub(crate) player: Arc<AudioPlayer>,
     pub(crate) api: Arc<siren_core::ApiClient>,
     pub(crate) download_service: Arc<Mutex<DownloadService>>,
@@ -33,7 +33,7 @@ struct PreparedPlaybackInput {
 }
 
 impl AppState {
-    pub(crate) fn new(app: tauri::AppHandle) -> Result<Self, String> {
+    pub fn new(app: tauri::AppHandle) -> Result<Self, String> {
         let log_center = Arc::new(LogCenter::new(app.clone())?);
         let player = AudioPlayer::new(app.clone()).map_err(|e| e.to_string())?;
         let api = siren_core::ApiClient::new().map_err(|e| e.to_string())?;
@@ -72,6 +72,29 @@ impl AppState {
 
     pub(crate) fn preferences(&self) -> AppPreferences {
         self.preferences.lock().unwrap().clone()
+    }
+
+    pub fn output_dir(&self) -> String {
+        self.preferences.lock().unwrap().output_dir.clone()
+    }
+
+    pub fn bind_media_controls(&self) -> Result<(), String> {
+        let media_state = self.clone();
+        self.player
+            .bind_media_controls(move |event| media_state.handle_media_control(event))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn record_log(&self, payload: LogPayload) {
+        self.log_center.record(payload);
+    }
+
+    pub fn flush_logs_on_exit(&self) -> Result<(), String> {
+        let threshold =
+            LogLevel::parse(&self.preferences.lock().unwrap().log_level).unwrap_or(LogLevel::Error);
+        self.log_center
+            .flush_session_to_persistent(threshold)
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn set_preferences(&self, prefs: AppPreferences) {
@@ -287,7 +310,7 @@ impl AppState {
             .await
     }
 
-    pub(crate) fn handle_media_control(&self, event: MediaControlEvent) {
+    fn handle_media_control(&self, event: MediaControlEvent) {
         match event {
             MediaControlEvent::Play => self.handle_media_play(),
             MediaControlEvent::Pause => self.handle_media_pause(),

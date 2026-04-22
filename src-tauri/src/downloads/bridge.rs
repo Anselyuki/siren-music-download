@@ -34,7 +34,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Called once during `main.rs` setup.  Starts the download execution loop
 /// that polls for queued jobs and drives tasks to completion.
-pub(crate) fn initialize(app: &AppHandle, state: &AppState) {
+pub fn initialize(app: &AppHandle, state: &AppState) {
     let app = app.clone();
     let state = state.clone();
 

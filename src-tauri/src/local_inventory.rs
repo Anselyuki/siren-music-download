@@ -218,7 +218,7 @@ pub(crate) fn emit_local_inventory_scan_progress(
     let _ = app.emit(LOCAL_INVENTORY_SCAN_PROGRESS, event);
 }
 
-pub(crate) fn spawn_inventory_scan(
+pub fn spawn_inventory_scan(
     app: AppHandle,
     state: AppState,
     root_output_dir: String,

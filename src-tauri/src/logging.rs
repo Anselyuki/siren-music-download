@@ -18,7 +18,7 @@ const PERSISTENT_LOG_FILE: &str = "persistent.jsonl";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum LogLevel {
+pub enum LogLevel {
     Debug,
     Info,
     Warn,
@@ -102,14 +102,14 @@ pub(crate) struct AppErrorEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum LogFileKind {
+pub enum LogFileKind {
     Session,
     Persistent,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerQuery {
+pub struct LogViewerQuery {
     pub(crate) kind: LogFileKind,
     pub(crate) level: Option<LogLevel>,
     pub(crate) domain: Option<String>,
@@ -120,7 +120,7 @@ pub(crate) struct LogViewerQuery {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerRecord {
+pub struct LogViewerRecord {
     pub(crate) id: String,
     pub(crate) ts: String,
     pub(crate) level: LogLevel,
@@ -132,7 +132,7 @@ pub(crate) struct LogViewerRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerPage {
+pub struct LogViewerPage {
     pub(crate) records: Vec<LogViewerRecord>,
     pub(crate) total: usize,
     pub(crate) kind: LogFileKind,
@@ -140,13 +140,13 @@ pub(crate) struct LogViewerPage {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogFileStatus {
+pub struct LogFileStatus {
     pub(crate) has_session_log: bool,
     pub(crate) has_persistent_log: bool,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LogPayload {
+pub struct LogPayload {
     pub(crate) level: LogLevel,
     pub(crate) domain: String,
     pub(crate) code: String,
@@ -160,7 +160,7 @@ pub(crate) struct LogPayload {
 }
 
 impl LogPayload {
-    pub(crate) fn new(
+    pub fn new(
         level: LogLevel,
         domain: impl Into<String>,
         code: impl Into<String>,
@@ -180,12 +180,12 @@ impl LogPayload {
         }
     }
 
-    pub(crate) fn user_message(mut self, value: impl Into<String>) -> Self {
+    pub fn user_message(mut self, value: impl Into<String>) -> Self {
         self.user_message = Some(value.into());
         self
     }
 
-    pub(crate) fn details(mut self, value: impl Into<String>) -> Self {
+    pub fn details(mut self, value: impl Into<String>) -> Self {
         self.details = Some(value.into());
         self
     }

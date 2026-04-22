@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 /// 统一应用偏好模型（TOML 序列化格式：snake_case 字段名）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AppPreferences {
+pub struct AppPreferences {
     /// Schema version for future migrations. Defaults to 1 if missing.
     #[serde(default)]
     pub(crate) schema_version: i32,

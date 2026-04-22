@@ -22,6 +22,7 @@ cargo clippy --workspace --all-targets
 
 # 文档
 cargo doc -p siren_core --no-deps
+cargo doc -p siren-music-download --lib --no-deps --document-private-items
 cargo doc -p siren-music-download --bin siren-music-download --no-deps --document-private-items
 ```
 
@@ -29,9 +30,10 @@ cargo doc -p siren-music-download --bin siren-music-download --no-deps --documen
 
 ```text
 Cargo workspace
-├── src-tauri/               # Tauri 后端二进制 crate
+├── src-tauri/               # Tauri 后端 crate（library + binary）
 │   └── src/
-│       ├── main.rs          # Tauri command 入口
+│       ├── lib.rs           # 后端模块 crate root，供 binary 与 integration tests 复用
+│       ├── main.rs          # Tauri 可执行入口与 wiring
 │       ├── app_state.rs     # 应用状态组合
 │       ├── audio_cache.rs   # 流式播放缓存
 │       ├── notification/    # 系统通知（公共入口、封面缓存、平台实现）
