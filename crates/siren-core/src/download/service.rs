@@ -738,6 +738,7 @@ mod tests {
         DownloadManagerSnapshot, DownloadOptions, DownloadTaskSnapshot, DownloadTaskStatus,
         InternalDownloadTask,
     };
+    use std::path::Path;
     use time::format_description::well_known::Iso8601;
     use time::OffsetDateTime;
 
@@ -883,7 +884,10 @@ mod tests {
 
         assert!(matches!(task.format, OutputFormat::Mp3));
         assert!(!task.download_lyrics);
-        assert_eq!(task.output_path.as_deref(), Some("/tmp/Album/Song.flac"));
+        assert_eq!(
+            task.output_path.as_ref().map(|p| Path::new(p)),
+            Some(Path::new("/tmp/Album/Song.flac"))
+        );
     }
 
     #[test]
@@ -921,8 +925,11 @@ mod tests {
             Some("Album/Song.flac")
         );
         assert_eq!(
-            service.state.jobs[0].tasks[0].output_path.as_deref(),
-            Some("/tmp/root/Album/Song.flac")
+            service.state.jobs[0].tasks[0]
+                .output_path
+                .as_ref()
+                .map(|p| Path::new(p)),
+            Some(Path::new("/tmp/root/Album/Song.flac"))
         );
     }
 
