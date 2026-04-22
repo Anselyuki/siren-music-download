@@ -167,4 +167,5 @@ Cargo workspace
   - `README.md`
   - `src-tauri` / `siren_core` 中对应的 rustdoc
 - 如果改了歌词、下载设置或播放器交互，同时检查 `src/App.svelte` 和 `src/lib/components/AudioPlayer.svelte` 的状态同步
+- 未经用户明确指示，不要新建分支；默认在当前分支上工作，涉及分支切换、新建分支、基于分支的推送或 PR 准备时先确认
 - 如果本轮改动属于测试整理、结构性重构或审批材料补充，优先对照 `doc/REVIEW_RULES.md` 中的通用规则，而不是把实现细节写进审批文档
