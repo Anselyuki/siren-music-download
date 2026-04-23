@@ -1,7 +1,15 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import * as Sheet from "$lib/components/ui/sheet/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Switch } from "$lib/components/ui/switch/index.js";
+  import {
+    clearAudioCache,
+    getLogFileStatus,
+    listLogRecords,
+    selectDirectory,
+    sendTestNotification,
+  } from "$lib/settingsApi";
   import type {
     LogFileKind,
     LogFileStatus,
@@ -18,39 +26,132 @@
     notifyOnDownloadComplete?: boolean;
     notifyOnPlaybackChange?: boolean;
     logLevel?: LogLevel;
-    logFileKind?: LogFileKind;
-    logRecords?: LogViewerRecord[];
-    logFileStatus?: LogFileStatus | null;
-    logViewerLoading?: boolean;
-    logViewerError?: string;
-    isSendingTestNotification?: boolean;
-    isClearingAudioCache?: boolean;
-    onSelectDirectory: () => void | Promise<void>;
-    onSendTestNotification: () => void | Promise<void>;
-    onClearAudioCache: () => void | Promise<void>;
-    onChangeLogFileKind: (kind: LogFileKind) => void | Promise<void>;
+    logRefreshToken?: number;
+    notifyInfo: (message: string) => void;
+    notifyError: (message: string) => void;
+    onOutputDirChange: (outputDir: string) => boolean | Promise<boolean>;
   }
 
   let {
     open = $bindable(false),
     format = $bindable<OutputFormat>("flac"),
-    outputDir = "",
+    outputDir = $bindable(""),
     downloadLyrics = $bindable(true),
     notifyOnDownloadComplete = $bindable(true),
     notifyOnPlaybackChange = $bindable(true),
     logLevel = $bindable<LogLevel>("error"),
-    logFileKind = "session",
-    logRecords = [],
-    logFileStatus = null,
-    logViewerLoading = false,
-    logViewerError = "",
-    isSendingTestNotification = false,
-    isClearingAudioCache = false,
-    onSelectDirectory,
-    onSendTestNotification,
-    onClearAudioCache,
-    onChangeLogFileKind,
+    logRefreshToken = 0,
+    notifyInfo,
+    notifyError,
+    onOutputDirChange,
   }: Props = $props();
+
+  let logFileKind = $state<LogFileKind>("session");
+  let logRecords = $state<LogViewerRecord[]>([]);
+  let logFileStatus = $state<LogFileStatus | null>(null);
+  let logViewerLoading = $state(false);
+  let logViewerError = $state("");
+  let isSendingTestNotification = $state(false);
+  let isClearingAudioCache = $state(false);
+  let lastLoadedWhileOpen = $state(false);
+
+  async function refreshLogs(kind = logFileKind) {
+    logViewerLoading = true;
+    logViewerError = "";
+    try {
+      const [page, status] = await Promise.all([
+        listLogRecords({ kind, limit: 100 }),
+        getLogFileStatus(),
+      ]);
+      logRecords = page.records;
+      logFileStatus = status;
+      logFileKind = kind;
+    } catch (error) {
+      logViewerError = error instanceof Error ? error.message : String(error);
+    } finally {
+      logViewerLoading = false;
+    }
+  }
+
+  async function handleSelectDirectory() {
+    const currentOutputDir = outputDir;
+    const dir = await selectDirectory(currentOutputDir);
+    if (!dir || dir === currentOutputDir) {
+      return;
+    }
+
+    outputDir = dir;
+    const saved = await onOutputDirChange(dir);
+    if (!saved) {
+      outputDir = currentOutputDir;
+      notifyError("保存下载目录失败，已恢复为之前的设置。");
+    }
+  }
+
+  async function handleClearAudioCache() {
+    if (isClearingAudioCache) return;
+    isClearingAudioCache = true;
+    try {
+      const removed = await clearAudioCache();
+      notifyInfo(
+        removed > 0
+          ? `已清除 ${removed} 个音频缓存文件`
+          : "当前没有可清除的音频缓存",
+      );
+    } catch (error) {
+      console.error("[ERROR] Failed to clear audio cache:", error);
+      notifyError(
+        `清除音频缓存失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      isClearingAudioCache = false;
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (isSendingTestNotification) return;
+    isSendingTestNotification = true;
+    try {
+      await sendTestNotification();
+      notifyInfo("测试通知已请求发送，请观察系统通知中心或终端日志。");
+    } catch (error) {
+      console.error("[ERROR] Failed to send test notification:", error);
+      notifyError(
+        `发送测试通知失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      isSendingTestNotification = false;
+    }
+  }
+
+  $effect(() => {
+    if (!open) {
+      lastLoadedWhileOpen = false;
+      return;
+    }
+
+    if (lastLoadedWhileOpen) {
+      return;
+    }
+
+    lastLoadedWhileOpen = true;
+    void refreshLogs(logFileKind);
+  });
+
+  $effect(() => {
+    const refreshToken = logRefreshToken;
+    if (!open || !lastLoadedWhileOpen || refreshToken === 0) {
+      return;
+    }
+
+    void refreshLogs(logFileKind);
+  });
+
+  onMount(() => {
+    return () => {
+      lastLoadedWhileOpen = false;
+    };
+  });
 </script>
 
 <Sheet.Root bind:open>
@@ -96,7 +197,7 @@
           readonly
           value={outputDir}
         />
-        <Button class="w-full" onclick={() => void onSelectDirectory()}>
+        <Button class="w-full" onclick={() => void handleSelectDirectory()}>
           选择文件夹
         </Button>
       </div>
@@ -121,7 +222,7 @@
             class="w-full"
             variant="secondary"
             disabled={isSendingTestNotification}
-            onclick={() => void onSendTestNotification()}
+            onclick={() => void handleSendTestNotification()}
           >
             {isSendingTestNotification ? "正在发送..." : "发送测试通知"}
           </Button>
@@ -153,7 +254,7 @@
           class="w-full"
           variant="secondary"
           disabled={isClearingAudioCache}
-          onclick={() => void onClearAudioCache()}
+          onclick={() => void handleClearAudioCache()}
         >
           {isClearingAudioCache ? "正在清除缓存..." : "清除音频缓存"}
         </Button>
@@ -171,14 +272,14 @@
             <Button
               size="sm"
               variant={logFileKind === "session" ? "default" : "secondary"}
-              onclick={() => void onChangeLogFileKind("session")}
+              onclick={() => void refreshLogs("session")}
             >
               本次运行
             </Button>
             <Button
               size="sm"
               variant={logFileKind === "persistent" ? "default" : "secondary"}
-              onclick={() => void onChangeLogFileKind("persistent")}
+              onclick={() => void refreshLogs("persistent")}
             >
               持久化
             </Button>

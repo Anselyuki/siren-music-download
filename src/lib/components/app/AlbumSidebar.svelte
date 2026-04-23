@@ -54,12 +54,13 @@
   const searchIndexState = $derived.by<LibraryIndexState>(() =>
     searchResponse?.indexState ?? "notReady",
   );
+  const isSearchIndexBuilding = $derived.by(
+    () => isSearchMode && !searchLoading && searchIndexState === "building",
+  );
   const searchStatusMessage = $derived.by(() => {
     if (!isSearchMode) return "";
     if (searchLoading) return "正在搜索…";
     switch (searchIndexState) {
-      case "building":
-        return "索引正在构建，请稍后再试。";
       case "stale":
         return "索引正在刷新，暂时不可用。";
       case "notReady":
@@ -116,7 +117,20 @@
       </div>
     </div>
   {:else if isSearchMode}
-    {#if searchStatusMessage}
+    {#if isSearchIndexBuilding}
+      <div class="search-status-card" aria-live="polite">
+        <div class="search-status-title">正在构建搜索索引</div>
+        <div
+          class="search-status-progress"
+          role="progressbar"
+          aria-label="搜索索引构建进度"
+          aria-valuetext="索引正在构建中"
+        >
+          <div class={`search-status-progress-bar${reducedMotion ? ' is-reduced-motion' : ''}`}></div>
+        </div>
+        <div class="search-status-hint">首次扫描完成后即可看到搜索结果。</div>
+      </div>
+    {:else if searchStatusMessage}
       <div class="empty-state">
         <div class="empty-text">{searchStatusMessage}</div>
       </div>
@@ -163,6 +177,65 @@
 </div>
 
 <style>
+  .search-status-card {
+    display: grid;
+    gap: 10px;
+    padding: 16px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .search-status-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .search-status-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .search-status-progress {
+    position: relative;
+    overflow: hidden;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+
+  .search-status-progress-bar {
+    position: absolute;
+    inset: 0;
+    width: 42%;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      rgba(var(--accent-rgb), 0.28) 0%,
+      rgba(var(--accent-rgb), 0.9) 45%,
+      rgba(var(--accent-rgb), 0.32) 100%
+    );
+    animation: search-progress-slide 1.2s ease-in-out infinite;
+  }
+
+  .search-status-progress-bar.is-reduced-motion {
+    width: 100%;
+    opacity: 0.72;
+    animation: none;
+  }
+
+  @keyframes search-progress-slide {
+    0% {
+      transform: translateX(-100%);
+    }
+
+    100% {
+      transform: translateX(240%);
+    }
+  }
+
   .search-result {
     width: 100%;
     display: grid;

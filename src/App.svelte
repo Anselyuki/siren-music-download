@@ -13,13 +13,11 @@
     getAlbums,
     getAlbumDetail,
     getDefaultOutputDir,
-    selectDirectory,
     playSong,
     pausePlayback,
     resumePlayback,
     seekCurrentPlayback,
     getPlayerState,
-    clearAudioCache,
     clearResponseCache,
     extractImageTheme,
     getImageDataUrl,
@@ -31,12 +29,9 @@
     retryDownloadJob,
     retryDownloadTask,
     clearDownloadHistory,
-    sendTestNotification,
     getPreferences,
     setPreferences,
     getLocalInventorySnapshot,
-    listLogRecords,
-    getLogFileStatus,
     searchLibrary,
   } from "$lib/api";
   import {
@@ -62,9 +57,6 @@
     LocalInventorySnapshot,
     AppErrorEvent,
     LogLevel,
-    LogFileKind,
-    LogFileStatus,
-    LogViewerRecord,
     DownloadHistoryScopeFilter,
     DownloadHistoryStatusFilter,
     DownloadHistoryKindFilter,
@@ -93,8 +85,6 @@
   import MotionSpinner from "$lib/components/MotionSpinner.svelte";
   import MotionPulseBlock from "$lib/components/MotionPulseBlock.svelte";
   import TopToolbar from "$lib/components/app/TopToolbar.svelte";
-  import SettingsSheet from "$lib/components/app/SettingsSheet.svelte";
-  import DownloadTasksSheet from "$lib/components/app/DownloadTasksSheet.svelte";
   import StatusToastHost from "$lib/components/app/StatusToastHost.svelte";
   import AlbumSidebar from "$lib/components/app/AlbumSidebar.svelte";
   import AlbumWorkspace from "$lib/components/app/AlbumWorkspace.svelte";
@@ -122,6 +112,8 @@
 
   type RepeatMode = "all" | "one";
   type SongDownloadState = "idle" | "creating" | "queued" | "running";
+  type SettingsSheetComponent = typeof import("$lib/components/app/SettingsSheet.svelte").default;
+  type DownloadTasksSheetComponent = typeof import("$lib/components/app/DownloadTasksSheet.svelte").default;
 
   interface PlayerSong {
     cid: string;
@@ -173,12 +165,16 @@
   // Download job system state
   let downloadManager = $state<DownloadManagerSnapshot | null>(null);
   let downloadPanelOpen = $state(false);
+  let SettingsSheetView = $state<SettingsSheetComponent | null>(null);
+  let DownloadTasksSheetView = $state<DownloadTasksSheetComponent | null>(null);
+  let settingsSheetLoader = $state<Promise<SettingsSheetComponent> | null>(null);
+  let downloadTasksSheetLoader = $state<Promise<DownloadTasksSheetComponent> | null>(null);
   let librarySearchQuery = $state("");
   let librarySearchScope = $state<LibrarySearchScope>("all");
   let librarySearchLoading = $state(false);
   let librarySearchResponse = $state<SearchLibraryResponse | null>(null);
   let pendingScrollToSongCid = $state<string | null>(null);
-  let librarySearchRequestSeq = $state(0);
+  let librarySearchRequestSeq = 0;
   let librarySearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let downloadSearchQuery = $state("");
   let downloadScopeFilter = $state<DownloadHistoryScopeFilter>("all");
@@ -838,7 +834,7 @@
   async function performSongDownload(songCid: string) {
     const existingJob = getSongDownloadJob(songCid);
     if (existingJob) {
-      openDownloadPanel();
+      await openDownloadPanel();
       return existingJob.id;
     }
 
@@ -857,7 +853,7 @@
         },
       };
       const job = await createDownloadJob(request);
-      openDownloadPanel(true);
+      await openDownloadPanel(true);
       return job.id;
     } finally {
       if (downloadingSongCid === songCid) {
@@ -885,7 +881,7 @@
   async function performAlbumDownload(album: AlbumDetail) {
     const existingJob = findAlbumDownloadJob(album.cid);
     if (existingJob) {
-      openDownloadPanel();
+      await openDownloadPanel();
       return existingJob.id;
     }
 
@@ -906,7 +902,7 @@
         },
       };
       const job = await createDownloadJob(request);
-      openDownloadPanel(true);
+      await openDownloadPanel(true);
       return job.id;
     } finally {
       if (downloadingAlbumCid === album.cid) {
@@ -920,7 +916,7 @@
 
     const existingJob = findSelectionDownloadJob(songCids);
     if (existingJob) {
-      openDownloadPanel();
+      await openDownloadPanel();
       return existingJob.id;
     }
 
@@ -942,7 +938,7 @@
         },
       };
       const job = await createDownloadJob(request);
-      openDownloadPanel(true);
+      await openDownloadPanel(true);
       clearSongSelection();
       selectionModeEnabled = false;
       return job.id;
@@ -1436,11 +1432,6 @@
     return () => observer.disconnect();
   });
 
-  $effect(() => {
-    if (!settingsOpen) return;
-    void refreshLogs(logFileKind);
-  });
-
   onMount(() => {
     envStore.init();
     shellStore.init();
@@ -1496,27 +1487,28 @@
         localInventory = null;
       }
 
+      const defaultDirPromise = outputDir
+        ? Promise.resolve("")
+        : getDefaultOutputDir().catch(() => "");
+
       try {
-        // Load albums and get default output dir in parallel.
-        // outputDir from preferences takes precedence; getDefaultOutputDir() is only
-        // a fallback when preferences has no saved output dir.
-        const [albumsData, defaultDir] = await Promise.all([
-          getAlbums(),
-          outputDir ? Promise.resolve("") : getDefaultOutputDir(),
-        ]);
-        if (defaultDir && !outputDir) {
-          outputDir = defaultDir;
-        }
-        albums = albumsData;
-        // Auto-select the first album on startup
-        if (albums.length > 0) {
-          await handleSelectAlbum(albums[0]);
-        }
+        albums = await getAlbums();
+        errorMsg = "";
       } catch (e) {
         errorMsg = e instanceof Error ? e.message : String(e);
         console.error("[ERROR] Failed to load albums:", e);
       } finally {
         loadingAlbums = false;
+      }
+
+      const defaultDir = await defaultDirPromise;
+      if (defaultDir && !outputDir) {
+        outputDir = defaultDir;
+      }
+
+      // Auto-select the first album on startup without blocking the sidebar list.
+      if (albums.length > 0 && !selectedAlbumCid) {
+        void handleSelectAlbum(albums[0]);
       }
 
       unlistenState = await listen<PlayerState>(
@@ -1643,12 +1635,6 @@
       }
 
       try {
-        await refreshLogs("session");
-      } catch {
-        // Keep settings usable if logs are unavailable.
-      }
-
-      try {
         syncPlayerState(await getPlayerState());
       } catch {
         // Player not playing on startup
@@ -1707,14 +1693,21 @@
       lyricsLoading = false;
       lyricsOpen = false;
       playlistOpen = false;
-      lastPlaybackSnapshot = { cid: null, active: false };
+      if (previousSnapshot.cid !== null || previousSnapshot.active) {
+        lastPlaybackSnapshot = { cid: null, active: false };
+      }
       return;
     }
 
-    lastPlaybackSnapshot = {
-      cid: songCid,
-      active: isCurrentActive,
-    };
+    if (
+      previousSnapshot.cid !== songCid ||
+      previousSnapshot.active !== isCurrentActive
+    ) {
+      lastPlaybackSnapshot = {
+        cid: songCid,
+        active: isCurrentActive,
+      };
+    }
 
     if (songCid === lyricsSongCid) {
       return;
@@ -1929,46 +1922,22 @@
   }
 
   let settingsOpen = $state(false);
-  let isClearingAudioCache = $state(false);
   let downloadLyrics = $state(true);
   let notifyOnDownloadComplete = $state(true);
   let notifyOnPlaybackChange = $state(true);
   let logLevel = $state<LogLevel>("error");
-  let logFileKind = $state<LogFileKind>("session");
-  let logRecords = $state<LogViewerRecord[]>([]);
-  let logFileStatus = $state<LogFileStatus | null>(null);
-  let logViewerLoading = $state(false);
-  let logViewerError = $state("");
-  let isSendingTestNotification = $state(false);
   let isFormatHovered = $state(false);
   let isFormatFocused = $state(false);
   let isOutputDirHovered = $state(false);
   let isOutputDirFocused = $state(false);
+  let settingsLogRefreshToken = $state(0);
   let prefsReady = $state(false);
   let localInventory = $state<LocalInventorySnapshot | null>(null);
-
-  async function refreshLogs(kind = logFileKind) {
-    logViewerLoading = true;
-    logViewerError = "";
-    try {
-      const [page, status] = await Promise.all([
-        listLogRecords({ kind, limit: 100 }),
-        getLogFileStatus(),
-      ]);
-      logRecords = page.records;
-      logFileStatus = status;
-      logFileKind = kind;
-    } catch (error) {
-      logViewerError = error instanceof Error ? error.message : String(error);
-    } finally {
-      logViewerLoading = false;
-    }
-  }
 
   function handleAppErrorEvent(event: AppErrorEvent) {
     notifyError(event.message);
     if (settingsOpen) {
-      void refreshLogs(logFileKind);
+      settingsLogRefreshToken += 1;
     }
   }
 
@@ -1986,47 +1955,7 @@
     albums = await getAlbums();
   }
 
-  async function handleSelectDirectory() {
-    const dir = await selectDirectory(outputDir);
-    if (dir) {
-      outputDir = dir;
-      void savePreferences();
-    }
-  }
-
-  async function handleClearAudioCache() {
-    if (isClearingAudioCache) return;
-    isClearingAudioCache = true;
-    try {
-      const removed = await clearAudioCache();
-      notifyInfo(
-        removed > 0
-          ? `已清除 ${removed} 个音频缓存文件`
-          : "当前没有可清除的音频缓存",
-      );
-    } catch (e) {
-      console.error("[ERROR] Failed to clear audio cache:", e);
-      notifyError(`清除音频缓存失败：${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      isClearingAudioCache = false;
-    }
-  }
-
-  async function handleSendTestNotification() {
-    if (isSendingTestNotification) return;
-    isSendingTestNotification = true;
-    try {
-      await sendTestNotification();
-      notifyInfo("测试通知已请求发送，请观察系统通知中心或终端日志。");
-    } catch (e) {
-      console.error("[ERROR] Failed to send test notification:", e);
-      notifyError(`发送测试通知失败：${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      isSendingTestNotification = false;
-    }
-  }
-
-  async function savePreferences() {
+  async function savePreferences(): Promise<boolean> {
     const prefs: AppPreferences = {
       outputFormat: format,
       outputDir,
@@ -2044,8 +1973,10 @@
       notifyOnDownloadComplete = updated.notifyOnDownloadComplete;
       notifyOnPlaybackChange = updated.notifyOnPlaybackChange;
       logLevel = updated.logLevel;
+      return true;
     } catch (e) {
       console.error("[ERROR] Failed to save preferences:", e);
+      return false;
     }
   }
 
@@ -2055,6 +1986,75 @@
 
   function notifyError(message: string) {
     toast.error(message);
+  }
+
+  async function ensureSettingsSheetLoaded(): Promise<boolean> {
+    if (SettingsSheetView) {
+      return true;
+    }
+
+    if (!settingsSheetLoader) {
+      settingsSheetLoader = import("$lib/components/app/SettingsSheet.svelte")
+        .then((module) => {
+          SettingsSheetView = module.default;
+          return module.default;
+        })
+        .finally(() => {
+          settingsSheetLoader = null;
+        });
+    }
+
+    try {
+      await settingsSheetLoader;
+      return true;
+    } catch (error) {
+      notifyError(
+        `打开设置面板失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  async function ensureDownloadTasksSheetLoaded(): Promise<boolean> {
+    if (DownloadTasksSheetView) {
+      return true;
+    }
+
+    if (!downloadTasksSheetLoader) {
+      downloadTasksSheetLoader = import("$lib/components/app/DownloadTasksSheet.svelte")
+        .then((module) => {
+          DownloadTasksSheetView = module.default;
+          return module.default;
+        })
+        .finally(() => {
+          downloadTasksSheetLoader = null;
+        });
+    }
+
+    try {
+      await downloadTasksSheetLoader;
+      return true;
+    } catch (error) {
+      notifyError(
+        `打开下载任务面板失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  async function openSettingsPanel() {
+    if (settingsOpen) {
+      settingsOpen = false;
+      return;
+    }
+
+    const loaded = await ensureSettingsSheetLoaded();
+    if (!loaded) {
+      return;
+    }
+
+    settingsOpen = true;
+    downloadPanelOpen = false;
   }
 
   // Download job helper functions
@@ -2143,10 +2143,16 @@
     downloadKindFilter = "all";
   }
 
-  function openDownloadPanel(resetFilters = false) {
+  async function openDownloadPanel(resetFilters = false) {
     if (resetFilters) {
       resetDownloadFilters();
     }
+
+    const loaded = await ensureDownloadTasksSheetLoaded();
+    if (!loaded) {
+      return;
+    }
+
     downloadPanelOpen = true;
     settingsOpen = false;
   }
@@ -2623,17 +2629,16 @@
       {settingsOpen}
       {downloadPanelOpen}
       onRefresh={handleRefresh}
-      onOpenDownloads={() => {
+      onOpenDownloads={async () => {
         const nextOpen = !downloadPanelOpen;
         if (nextOpen) {
-          openDownloadPanel();
+          await openDownloadPanel();
           return;
         }
         downloadPanelOpen = false;
       }}
-      onOpenSettings={() => {
-        settingsOpen = !settingsOpen;
-        if (settingsOpen) downloadPanelOpen = false;
+      onOpenSettings={async () => {
+        await openSettingsPanel();
       }}
     />
 
@@ -3167,52 +3172,49 @@
     </AnimatePresence>
   </section>
 
-  <SettingsSheet
-    bind:open={settingsOpen}
-    bind:format
-    {outputDir}
-    bind:downloadLyrics
-    bind:notifyOnDownloadComplete
-    bind:notifyOnPlaybackChange
-    bind:logLevel
-    {logFileKind}
-    {logRecords}
-    {logFileStatus}
-    {logViewerLoading}
-    {logViewerError}
-    {isSendingTestNotification}
-    {isClearingAudioCache}
-    onSelectDirectory={handleSelectDirectory}
-    onSendTestNotification={handleSendTestNotification}
-    onClearAudioCache={handleClearAudioCache}
-    onChangeLogFileKind={refreshLogs}
-  />
+  {#if SettingsSheetView}
+    <SettingsSheetView
+      bind:open={settingsOpen}
+      bind:format
+      bind:outputDir
+      bind:downloadLyrics
+      bind:notifyOnDownloadComplete
+      bind:notifyOnPlaybackChange
+      bind:logLevel
+      logRefreshToken={settingsLogRefreshToken}
+      {notifyInfo}
+      {notifyError}
+      onOutputDirChange={() => savePreferences()}
+    />
+  {/if}
 
-  <DownloadTasksSheet
-    bind:open={downloadPanelOpen}
-    jobs={filteredDownloadJobs}
-    hasDownloadHistory={hasDownloadHistory}
-    bind:searchQuery={downloadSearchQuery}
-    bind:scopeFilter={downloadScopeFilter}
-    bind:statusFilter={downloadStatusFilter}
-    bind:kindFilter={downloadKindFilter}
-    {canClearDownloadHistory}
-    {getJobProgress}
-    {getJobProgressText}
-    {getJobStatusLabel}
-    {getJobKindLabel}
-    {getJobSummaryLabel}
-    {getJobErrorSummary}
-    {isJobActive}
-    {canCancelTask}
-    {canRetryTask}
-    {getTaskErrorLabel}
-    {getTaskStatusLabel}
-    onClearDownloadHistory={handleClearDownloadHistory}
-    onCancelDownloadJob={handleCancelDownloadJob}
-    onRetryDownloadJob={handleRetryDownloadJob}
-    onCancelDownloadTask={handleCancelDownloadTask}
-    onRetryDownloadTask={handleRetryDownloadTask}
-  />
+  {#if DownloadTasksSheetView}
+    <DownloadTasksSheetView
+      bind:open={downloadPanelOpen}
+      jobs={filteredDownloadJobs}
+      hasDownloadHistory={hasDownloadHistory}
+      bind:searchQuery={downloadSearchQuery}
+      bind:scopeFilter={downloadScopeFilter}
+      bind:statusFilter={downloadStatusFilter}
+      bind:kindFilter={downloadKindFilter}
+      {canClearDownloadHistory}
+      {getJobProgress}
+      {getJobProgressText}
+      {getJobStatusLabel}
+      {getJobKindLabel}
+      {getJobSummaryLabel}
+      {getJobErrorSummary}
+      {isJobActive}
+      {canCancelTask}
+      {canRetryTask}
+      {getTaskErrorLabel}
+      {getTaskStatusLabel}
+      onClearDownloadHistory={handleClearDownloadHistory}
+      onCancelDownloadJob={handleCancelDownloadJob}
+      onRetryDownloadJob={handleRetryDownloadJob}
+      onCancelDownloadTask={handleCancelDownloadTask}
+      onRetryDownloadTask={handleRetryDownloadTask}
+    />
+  {/if}
 
 </div>
