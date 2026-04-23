@@ -27,7 +27,7 @@ use siren_core::download::model::{DownloadJobKind, DownloadTaskStatus, InternalD
 use siren_core::download::worker::{CompletedTaskArtifacts, TaskExecutionResult};
 use siren_core::WritePayload;
 use siren_core::{album_cover_exists, album_output_dir, download_album_cover};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -264,6 +264,18 @@ async fn start_job(
     })
 }
 
+fn resolve_task_output_dir(
+    job_kind: DownloadJobKind,
+    base_output_dir: &Path,
+    task: &InternalDownloadTask,
+) -> PathBuf {
+    match job_kind {
+        DownloadJobKind::Song | DownloadJobKind::Album | DownloadJobKind::Selection => {
+            album_output_dir(base_output_dir, &task.album_name)
+        }
+    }
+}
+
 async fn prepare_task_output_dir(
     service: &Arc<tokio::sync::Mutex<siren_core::DownloadService>>,
     api: &Arc<siren_core::ApiClient>,
@@ -284,12 +296,7 @@ async fn prepare_task_output_dir(
         (job_kind, PathBuf::from(output_dir))
     };
 
-    let out_dir = match job_kind {
-        DownloadJobKind::Song => base_output_dir,
-        DownloadJobKind::Album | DownloadJobKind::Selection => {
-            album_output_dir(&base_output_dir, &task.album_name)
-        }
-    };
+    let out_dir = resolve_task_output_dir(job_kind, &base_output_dir, task);
 
     if matches!(job_kind, DownloadJobKind::Album) && !album_cover_exists(&out_dir) {
         let _ = tokio::fs::create_dir_all(&out_dir).await;
@@ -457,5 +464,58 @@ fn unpack_task_result(
             None,
         ),
         TaskExecutionResult::Failed(info) => (DownloadTaskStatus::Failed, None, Some(info), None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_task_output_dir;
+    use siren_core::audio::OutputFormat;
+    use siren_core::download::model::{DownloadJobKind, DownloadTaskStatus, InternalDownloadTask};
+    use std::path::Path;
+
+    fn make_task(album_name: &str) -> InternalDownloadTask {
+        InternalDownloadTask {
+            id: "task-1".to_string(),
+            job_id: "job-1".to_string(),
+            song_cid: "song-1".to_string(),
+            song_name: "Song".to_string(),
+            artists: vec!["Artist".to_string()],
+            album_cid: "album-1".to_string(),
+            album_name: album_name.to_string(),
+            status: DownloadTaskStatus::Queued,
+            bytes_done: 0,
+            bytes_total: None,
+            output_path: None,
+            error: None,
+            attempt: 0,
+            song_index: 0,
+            song_count: 1,
+            format: OutputFormat::Flac,
+            download_lyrics: true,
+        }
+    }
+
+    #[test]
+    fn song_jobs_use_album_subdirectory() {
+        let task = make_task("A/B:C?D");
+
+        let out_dir =
+            resolve_task_output_dir(DownloadJobKind::Song, Path::new("/tmp/downloads"), &task);
+
+        assert_eq!(out_dir, Path::new("/tmp/downloads").join("A_B_C_D"));
+    }
+
+    #[test]
+    fn selection_jobs_use_album_subdirectory() {
+        let task = make_task("Album Name");
+
+        let out_dir = resolve_task_output_dir(
+            DownloadJobKind::Selection,
+            Path::new("/tmp/downloads"),
+            &task,
+        );
+
+        assert_eq!(out_dir, Path::new("/tmp/downloads").join("Album Name"));
     }
 }
