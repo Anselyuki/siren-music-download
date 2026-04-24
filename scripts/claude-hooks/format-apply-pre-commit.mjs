@@ -11,7 +11,7 @@ import {
   isSuccessful,
   runCommand,
   snapshotFileHashes,
-} from './rust-fmt-lib.mjs';
+} from './format-hook-lib.mjs';
 
 const repoRoot = getRepoRoot();
 

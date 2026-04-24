@@ -19,7 +19,7 @@ if (repo.error || repo.status !== 0) {
 }
 
 const root = repo.stdout.trim();
-const script = resolve(scriptDirectory, 'rust-fmt-stop-warning.mjs');
+const script = resolve(scriptDirectory, 'format-check-stop-warning.mjs');
 const result = spawnSync(process.execPath, [script], {
   cwd: root,
   encoding: 'utf8',

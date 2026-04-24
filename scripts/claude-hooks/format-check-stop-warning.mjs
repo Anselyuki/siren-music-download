@@ -6,7 +6,7 @@ import {
   getRepoRoot,
   isSuccessful,
   runCommand,
-} from './rust-fmt-lib.mjs';
+} from './format-hook-lib.mjs';
 
 const PRETTIER_PATTERNS = [
   '*.js',
