@@ -218,7 +218,8 @@ pub(crate) fn emit_local_inventory_scan_progress(
     let _ = app.emit(LOCAL_INVENTORY_SCAN_PROGRESS, event);
 }
 
-pub(crate) fn spawn_inventory_scan(
+/// 启动一次本地库存扫描任务，并通过事件持续回传进度与最终状态。
+pub fn spawn_inventory_scan(
     app: AppHandle,
     state: AppState,
     root_output_dir: String,
@@ -233,6 +234,10 @@ pub(crate) fn spawn_inventory_scan(
         let started = state
             .local_inventory_service
             .begin_scan(root_output_dir.clone(), mode)
+            .await;
+        state
+            .library_search_service
+            .prepare_for_inventory_scan(root_output_dir.clone())
             .await;
         emit_local_inventory_state_changed(&app, &started);
 
@@ -261,6 +266,11 @@ pub(crate) fn spawn_inventory_scan(
                     .await
             }
         };
+        if finished.status == LocalInventoryStatus::Completed {
+            state
+                .library_search_service
+                .schedule_rebuild(state.clone(), finished.clone());
+        }
         emit_local_inventory_state_changed(&app, &finished);
     });
 }

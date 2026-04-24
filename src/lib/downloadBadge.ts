@@ -1,10 +1,20 @@
 import type { LocalTrackDownloadStatus } from './types';
 
-export function shouldShowDownloadBadge(status: LocalTrackDownloadStatus): boolean {
+export function shouldShowDownloadBadge(
+  status: LocalTrackDownloadStatus
+): boolean {
   return status !== 'missing' && status !== 'unknown';
 }
 
-export function getDownloadBadgeLabel(status: LocalTrackDownloadStatus): string {
+export function shouldShowAlbumListDownloadBadge(
+  status: LocalTrackDownloadStatus
+): boolean {
+  return status !== 'partial' && shouldShowDownloadBadge(status);
+}
+
+export function getDownloadBadgeLabel(
+  status: LocalTrackDownloadStatus
+): string {
   switch (status) {
     case 'verified':
       return '已校验';

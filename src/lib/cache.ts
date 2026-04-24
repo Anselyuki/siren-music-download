@@ -31,10 +31,15 @@ interface TieredCacheOptions {
   persistent: boolean;
 }
 
-interface CacheLookup<T> {
-  found: boolean;
-  data: T | null;
-}
+type CacheLookup<T> =
+  | {
+      found: true;
+      data: T;
+    }
+  | {
+      found: false;
+      data: null;
+    };
 
 interface LatestAlbumsSnapshot {
   keys: string[];
@@ -81,6 +86,34 @@ function isEntryValid(entry: CacheEntry<unknown>, ttlMs: number): boolean {
   return Date.now() - entry.timestamp < ttlMs;
 }
 
+function isCacheType(value: string): value is CacheType {
+  return (
+    value === 'albums' ||
+    value === 'songs' ||
+    value === 'lyrics' ||
+    value === 'themes' ||
+    value === 'covers'
+  );
+}
+
+function isSerializedCacheEntry<T>(
+  value: unknown
+): value is SerializedCacheEntry<T> {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<SerializedCacheEntry<T>>;
+  return (
+    typeof candidate.type === 'string' &&
+    isCacheType(candidate.type) &&
+    typeof candidate.key === 'string' &&
+    typeof candidate.timestamp === 'number' &&
+    typeof candidate.lastAccessedAt === 'number' &&
+    Array.isArray(candidate.tags)
+  );
+}
+
 function cloneEntry<T>(entry: CacheEntry<T>): CacheEntry<T> {
   return {
     data: entry.data,
@@ -90,7 +123,11 @@ function cloneEntry<T>(entry: CacheEntry<T>): CacheEntry<T> {
   };
 }
 
-function updateSetMap(map: Map<string, Set<string>>, mapKey: string, value: string): void {
+function updateSetMap(
+  map: Map<string, Set<string>>,
+  mapKey: string,
+  value: string
+): void {
   const existing = map.get(mapKey) ?? new Set<string>();
   existing.add(value);
   map.set(mapKey, existing);
@@ -114,7 +151,7 @@ class TieredCache<T> {
     missesState: Record<CacheType, number>,
     evictionsState: Record<CacheType, number>,
     tagIndex: Map<string, Set<string>>,
-    keyTags: Map<string, Set<string>>,
+    keyTags: Map<string, Set<string>>
   ) {
     this.type = type;
     this.options = options;
@@ -153,7 +190,9 @@ class TieredCache<T> {
       return { found: false, data: null };
     }
 
-    const persisted = await get<SerializedCacheEntry<T>>(persistenceKey(this.type, key));
+    const persisted = await get<SerializedCacheEntry<T>>(
+      persistenceKey(this.type, key)
+    );
     if (!persisted) {
       this.missesState[this.type] += 1;
       return { found: false, data: null };
@@ -226,11 +265,16 @@ class TieredCache<T> {
     const persistentKeys = await keys();
     const scopedKeys = persistentKeys.filter(
       (value: IDBValidKey) =>
-        typeof value === 'string' && value.startsWith(`${PERSISTENCE_KEY_PREFIX}${this.type}:`),
+        typeof value === 'string' &&
+        value.startsWith(`${PERSISTENCE_KEY_PREFIX}${this.type}:`)
     );
-    await Promise.all(scopedKeys.map((value: IDBValidKey) => del(String(value))));
+    await Promise.all(
+      scopedKeys.map((value: IDBValidKey) => del(String(value)))
+    );
     if (this.type === 'albums') {
-      await set(PERSISTENCE_LATEST_ALBUMS_KEY, { keys: [] } satisfies LatestAlbumsSnapshot);
+      await set(PERSISTENCE_LATEST_ALBUMS_KEY, {
+        keys: [],
+      } satisfies LatestAlbumsSnapshot);
     }
   }
 
@@ -240,7 +284,9 @@ class TieredCache<T> {
     }
 
     for (const key of keysToLoad.slice(0, WARM_ALBUM_LIMIT)) {
-      const persisted = await get<SerializedCacheEntry<T>>(persistenceKey(this.type, key));
+      const persisted = await get<SerializedCacheEntry<T>>(
+        persistenceKey(this.type, key)
+      );
       if (!persisted) {
         continue;
       }
@@ -322,15 +368,25 @@ class TieredCache<T> {
 
     const persistentEntries = await entries();
     const scopedEntries = persistentEntries
-      .filter(
-        ([key]: [IDBValidKey, unknown]) =>
-          typeof key === 'string' && key.startsWith(`${PERSISTENCE_KEY_PREFIX}${this.type}:`),
-      )
-      .map(([key, value]: [IDBValidKey, unknown]) => ({
-        storageKey: String(key),
-        entry: value as SerializedCacheEntry<T>,
-      }))
-      .sort((left, right) => right.entry.lastAccessedAt - left.entry.lastAccessedAt);
+      .flatMap(([key, value]: [IDBValidKey, unknown]) => {
+        if (
+          typeof key !== 'string' ||
+          !key.startsWith(`${PERSISTENCE_KEY_PREFIX}${this.type}:`) ||
+          !isSerializedCacheEntry<T>(value)
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            storageKey: String(key),
+            entry: value,
+          },
+        ];
+      })
+      .sort(
+        (left, right) => right.entry.lastAccessedAt - left.entry.lastAccessedAt
+      );
 
     const overflowEntries = scopedEntries.slice(this.options.maxEntries);
     await Promise.all(overflowEntries.map(({ storageKey }) => del(storageKey)));
@@ -378,20 +434,60 @@ class CacheManager {
   private readonly tagIndex = new Map<string, Set<string>>();
   private readonly keyTags = new Map<string, Set<string>>();
 
-  readonly albums = new TieredCache<AlbumDetail>('albums', CACHE_OPTIONS.albums, this.hits, this.misses, this.evictions, this.tagIndex, this.keyTags);
-  readonly songs = new TieredCache<SongDetail>('songs', CACHE_OPTIONS.songs, this.hits, this.misses, this.evictions, this.tagIndex, this.keyTags);
-  readonly lyrics = new TieredCache<string | null>('lyrics', CACHE_OPTIONS.lyrics, this.hits, this.misses, this.evictions, this.tagIndex, this.keyTags);
-  readonly themes = new TieredCache<ThemePalette>('themes', CACHE_OPTIONS.themes, this.hits, this.misses, this.evictions, this.tagIndex, this.keyTags);
-  readonly covers = new TieredCache<string>('covers', CACHE_OPTIONS.covers, this.hits, this.misses, this.evictions, this.tagIndex, this.keyTags);
+  readonly albums = new TieredCache<AlbumDetail>(
+    'albums',
+    CACHE_OPTIONS.albums,
+    this.hits,
+    this.misses,
+    this.evictions,
+    this.tagIndex,
+    this.keyTags
+  );
+  readonly songs = new TieredCache<SongDetail>(
+    'songs',
+    CACHE_OPTIONS.songs,
+    this.hits,
+    this.misses,
+    this.evictions,
+    this.tagIndex,
+    this.keyTags
+  );
+  readonly lyrics = new TieredCache<string | null>(
+    'lyrics',
+    CACHE_OPTIONS.lyrics,
+    this.hits,
+    this.misses,
+    this.evictions,
+    this.tagIndex,
+    this.keyTags
+  );
+  readonly themes = new TieredCache<ThemePalette>(
+    'themes',
+    CACHE_OPTIONS.themes,
+    this.hits,
+    this.misses,
+    this.evictions,
+    this.tagIndex,
+    this.keyTags
+  );
+  readonly covers = new TieredCache<string>(
+    'covers',
+    CACHE_OPTIONS.covers,
+    this.hits,
+    this.misses,
+    this.evictions,
+    this.tagIndex,
+    this.keyTags
+  );
 
   async invalidateKey(key: string): Promise<void> {
     const [type, ...rest] = key.split(':');
     const unscopedKey = rest.join(':');
-    if (!type || !unscopedKey) {
+    if (!type || !unscopedKey || !isCacheType(type)) {
       return;
     }
 
-    switch (type as CacheType) {
+    switch (type) {
       case 'albums':
         await this.albums.delete(unscopedKey);
         break;
@@ -416,19 +512,21 @@ class CacheManager {
     const scopedKeys = new Set<string>(this.tagIndex.get(tag) ?? []);
 
     const persistentEntries = await entries();
-    for (const [key, value] of persistentEntries as [IDBValidKey, unknown][]) {
+    for (const [key, value] of persistentEntries) {
       if (typeof key !== 'string' || !key.startsWith(PERSISTENCE_KEY_PREFIX)) {
         continue;
       }
       if (key === PERSISTENCE_LATEST_ALBUMS_KEY) {
         continue;
       }
-
-      const entry = value as SerializedCacheEntry<unknown>;
-      if (!entry.tags.includes(tag)) {
+      if (!isSerializedCacheEntry<unknown>(value)) {
         continue;
       }
-      scopedKeys.add(`${entry.type}:${entry.key}`);
+
+      if (!value.tags.includes(tag)) {
+        continue;
+      }
+      scopedKeys.add(`${value.type}:${value.key}`);
     }
 
     await Promise.all([...scopedKeys].map((key) => this.invalidateKey(key)));
@@ -482,7 +580,9 @@ class CacheManager {
   }
 
   async warmStart(): Promise<void> {
-    const latestAlbums = (await get<LatestAlbumsSnapshot>(PERSISTENCE_LATEST_ALBUMS_KEY)) ?? {
+    const latestAlbums = (await get<LatestAlbumsSnapshot>(
+      PERSISTENCE_LATEST_ALBUMS_KEY
+    )) ?? {
       keys: [],
     };
     await this.albums.warmStart(latestAlbums.keys);
@@ -491,27 +591,34 @@ class CacheManager {
   async syncLatestAlbumKeys(): Promise<void> {
     const cachedEntries = await entries();
     const latestAlbumKeys = cachedEntries
-      .filter(
-        ([key]: [IDBValidKey, unknown]) =>
-          typeof key === 'string' && key.startsWith(`${PERSISTENCE_KEY_PREFIX}albums:`),
-      )
-      .map(([key, value]: [IDBValidKey, unknown]) => {
-        const entry = value as SerializedCacheEntry<unknown>;
-        return {
-          key: String(key).replace(`${PERSISTENCE_KEY_PREFIX}albums:`, ''),
-          lastAccessedAt: entry.lastAccessedAt ?? entry.timestamp ?? 0,
-        };
+      .flatMap(([key, value]: [IDBValidKey, unknown]) => {
+        if (
+          typeof key !== 'string' ||
+          !key.startsWith(`${PERSISTENCE_KEY_PREFIX}albums:`) ||
+          !isSerializedCacheEntry<unknown>(value)
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            key: String(key).replace(`${PERSISTENCE_KEY_PREFIX}albums:`, ''),
+            lastAccessedAt: value.lastAccessedAt ?? value.timestamp ?? 0,
+          },
+        ];
       })
       .sort(
         (
           left: { key: string; lastAccessedAt: number },
-          right: { key: string; lastAccessedAt: number },
-        ) => right.lastAccessedAt - left.lastAccessedAt,
+          right: { key: string; lastAccessedAt: number }
+        ) => right.lastAccessedAt - left.lastAccessedAt
       )
       .slice(0, WARM_ALBUM_LIMIT)
       .map((entry: { key: string; lastAccessedAt: number }) => entry.key);
 
-    await set(PERSISTENCE_LATEST_ALBUMS_KEY, { keys: latestAlbumKeys } satisfies LatestAlbumsSnapshot);
+    await set(PERSISTENCE_LATEST_ALBUMS_KEY, {
+      keys: latestAlbumKeys,
+    } satisfies LatestAlbumsSnapshot);
   }
 }
 
@@ -525,7 +632,9 @@ export function createSongCacheTag(songCid: string): string {
   return `tag:song:${songCid}`;
 }
 
-export function createInventoryCacheTag(inventoryVersion: string | null | undefined): string {
+export function createInventoryCacheTag(
+  inventoryVersion: string | null | undefined
+): string {
   return `tag:inventory:${inventoryVersion ?? 'unversioned'}`;
 }
 

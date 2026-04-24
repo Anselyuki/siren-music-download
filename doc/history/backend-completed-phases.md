@@ -2,18 +2,22 @@
 
 > 本文档记录已经交付的后端阶段与已落地的基础能力。
 >
-> 未完成或未来阶段参见 [BACKEND_PENDING_PHASES.md](BACKEND_PENDING_PHASES.md)。
+> **状态说明（2026-04）**：本文主要作为阶段完成记录保留，不承担当前后端契约真相来源；若与最新实现冲突，以 [backend-api-contract.md](../reference/backend-api-contract.md) 与实际代码为准。
 >
-> 共享类型、命令、事件和状态机规则以 [BACKEND_API_CONTRACT.md](BACKEND_API_CONTRACT.md) 为唯一事实来源。
+> 未完成或未来阶段参见 [backend-pending-phases.md](./backend-pending-phases.md)。
+>
+> 共享类型、命令、事件和状态机规则以 [backend-api-contract.md](../reference/backend-api-contract.md) 为唯一事实来源。
 
 ## 当前总览
 
-- **Phase 1–7 已完成**
-- **Phase 8 已完成**
-- **Phase 9 已完成**
-- **Phase 10 已完成**
+- **Phase 1–10 已完成**
+- **Phase 12A 已完成**
+- **Phase 12B 已落地首批搜索增强能力**
 - Phase 8 当前已包含：结构化本地证据、`verified` / `mismatch` / `partial` / `unverifiable` 的实际产出、下载链路 provenance 记录、下载后自动重扫、`inventoryVersion` 驱动的前端缓存失效与状态展示
-- 当前待办已切换为 **Phase 11**
+- Phase 12 当前已包含：`search_library` command、基于本地 snapshot + Tantivy 的索引、`all / albums / songs` scope、`notReady / building / stale / ready` 生命周期、`intro` / `belong` 命中表达、标题 / 艺术家 /归属字段的拼音召回，以及稳定排序与 last-ready 回退
+- 当前待办已切换为 **Phase 11（条件触发）** 与 **Phase 12B / 12C 的剩余增强**
+
+> 说明：Phase 11 属于条件触发型增强，因此在 Phase 10 之后，搜索能力先行进入了 Phase 12，不代表后续阶段必须按编号严格顺序落地。
 
 ## 已完成阶段
 
@@ -99,6 +103,23 @@
 - 历史持久化写入使用原子替换，避免中途写坏状态文件
 - 增加终态历史保留策略，限制状态文件增长
 - 状态文件损坏或 schema 不兼容时会记录日志并回退为空历史，不阻塞启动
+
+### Phase 12A：库内搜索 MVP
+
+- `search_library` Tauri command 与前后端共享搜索类型
+- `AppState` 挂载 `LibrarySearchService`
+- 基于本地 snapshot + Tantivy 的嵌入式搜索索引
+- `all / albums / songs` 三种 scope
+- `notReady / building / stale / ready` 索引状态与 last-ready 回退语义
+- 查询参数校验、分页上限与稳定排序
+- 前端搜索输入、范围切换、结果定位与 `indexState` 展示
+
+### Phase 12B（已落地部分）：搜索召回与排序增强
+
+- `matchedFields` 已支持 `title / artist / intro / belong`
+- 专辑 `intro` / `belong` 已进入索引与命中表达
+- 标题、艺术家与 `belong` 已支持拼音全拼 / 首字母召回
+- 排序已按标题、艺术家、归属、简介等字段权重做增强，不再仅是基础子串匹配
 
 ## 已落地基础能力补充
 

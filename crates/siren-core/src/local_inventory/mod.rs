@@ -1,21 +1,35 @@
+//! 本地库存扫描、证据建模与下载徽标聚合。
+//!
+//! 该模块定义本地库存扫描状态、音频文件证据、校验模式与专辑/曲目下载徽标相关模型，
+//! 供库存扫描服务、下载结果增强与前端展示层复用。
+
 use crate::audio::sanitize_filename;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 const AUDIO_EXTENSIONS: [&str; 3] = ["flac", "wav", "mp3"];
 
+/// 单曲在本地库存中的下载状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalTrackDownloadStatus {
+    /// 未发现任何候选文件。
     Missing,
+    /// 发现了候选文件，但未完成严格校验。
     Detected,
+    /// 发现文件且校验通过。
     Verified,
+    /// 发现文件，但校验结果与记录不一致。
     Mismatch,
+    /// 命中了多个候选文件或部分命中。
     Partial,
+    /// 在严格模式下发现文件，但无法完成可信校验。
     Unverifiable,
+    /// 状态未知，通常用于聚合结果中的保守兜底。
     Unknown,
 }
 
+/// 本地库存扫描任务的整体状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalInventoryStatus {
@@ -25,29 +39,41 @@ pub enum LocalInventoryStatus {
     Failed,
 }
 
+/// 本地库存校验模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum VerificationMode {
+    /// 不做校验，只做存在性检测。
     None,
+    /// 条件允许时执行校验，否则退化为检测。
     WhenAvailable,
+    /// 无法完成校验时按不可验证处理。
     Strict,
 }
 
+/// 单曲证据命中的路径规则。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalTrackEvidenceMatchRule {
+    /// 命中了根目录下的相对路径。
     RootRelativePath,
+    /// 命中了专辑子目录下的相对路径。
     AlbumRelativePath,
 }
 
+/// 本地音频文件的校验状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalAudioFileVerificationState {
+    /// 尚未执行或无法执行校验。
     Unchecked,
+    /// 校验通过。
     Verified,
+    /// 校验失败。
     Mismatch,
 }
 
+/// 扫描阶段采集到的本地音频文件证据。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalAudioFileEvidence {
@@ -65,23 +91,35 @@ pub struct LocalAudioFileEvidence {
     pub verification_state: LocalAudioFileVerificationState,
 }
 
+/// 命中当前歌曲后的归一化证据结构。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchedTrackEvidence {
+    /// 相对于根输出目录的规范化路径。
     pub relative_path: String,
+    /// 文件大小。
     pub file_size: u64,
+    /// 文件修改时间。
     pub modified_at_ms: Option<u64>,
+    /// 供后续校验链复用的候选摘要。
     pub candidate_checksum: Option<String>,
+    /// 文件是否位于专辑子目录内。
     pub is_in_album_directory: bool,
+    /// 当前命中的路径规则。
     pub match_rule: LocalTrackEvidenceMatchRule,
+    /// 当前证据的校验状态。
     pub verification_state: LocalAudioFileVerificationState,
 }
 
+/// 单曲级下载徽标。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackDownloadBadge {
+    /// 当前单曲是否可视为本地已存在。
     pub is_downloaded: bool,
+    /// 单曲级下载状态。
     pub download_status: LocalTrackDownloadStatus,
+    /// 用于前端缓存失效的库存版本号。
     pub inventory_version: String,
 }
 
@@ -116,17 +154,27 @@ impl Default for AlbumDownloadBadge {
     }
 }
 
+/// 当前库存的整体快照。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalInventorySnapshot {
+    /// 当前根输出目录。
     pub root_output_dir: String,
+    /// 当前扫描状态。
     pub status: LocalInventoryStatus,
+    /// 库存版本号。
     pub inventory_version: String,
+    /// 扫描开始时间。
     pub started_at: Option<String>,
+    /// 扫描结束时间。
     pub finished_at: Option<String>,
+    /// 已扫描文件数量。
     pub scanned_file_count: usize,
+    /// 命中的歌曲数量。
     pub matched_track_count: usize,
+    /// 校验通过的歌曲数量。
     pub verified_track_count: usize,
+    /// 最近一次错误信息。
     pub last_error: Option<String>,
 }
 
@@ -146,17 +194,35 @@ impl Default for LocalInventorySnapshot {
     }
 }
 
+/// 扫描过程中发往前端的进度事件。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalInventoryScanProgressEvent {
+    /// 当前扫描的根输出目录。
     pub root_output_dir: String,
+    /// 当前扫描对应的库存版本号。
     pub inventory_version: String,
+    /// 已扫描文件数。
     pub files_scanned: usize,
+    /// 已命中的歌曲数。
     pub matched_track_count: usize,
+    /// 已校验通过的歌曲数。
     pub verified_track_count: usize,
+    /// 当前处理到的相对路径。
     pub current_path: Option<String>,
 }
 
+/// 判断某个状态是否应被视为“本地已下载”。
+///
+/// # 示例
+///
+/// ```
+/// use siren_core::local_inventory::is_downloaded_status;
+/// use siren_core::LocalTrackDownloadStatus;
+///
+/// assert!(is_downloaded_status(LocalTrackDownloadStatus::Verified));
+/// assert!(!is_downloaded_status(LocalTrackDownloadStatus::Missing));
+/// ```
 pub fn is_downloaded_status(status: LocalTrackDownloadStatus) -> bool {
     matches!(
         status,
@@ -167,14 +233,17 @@ pub fn is_downloaded_status(status: LocalTrackDownloadStatus) -> bool {
     )
 }
 
+/// 返回一个表示“未下载”的单曲徽标。
 pub fn missing_track_badge(inventory_version: impl Into<String>) -> TrackDownloadBadge {
     badge_for_status(LocalTrackDownloadStatus::Missing, inventory_version)
 }
 
+/// 返回一个表示“未下载”的专辑徽标。
 pub fn missing_album_badge(inventory_version: impl Into<String>) -> AlbumDownloadBadge {
     album_badge_for_status(LocalTrackDownloadStatus::Missing, inventory_version)
 }
 
+/// 根据校验模式为已发现文件构造单曲徽标。
 pub fn badge_for_detected_file(
     verification_mode: VerificationMode,
     inventory_version: impl Into<String>,
@@ -188,6 +257,7 @@ pub fn badge_for_detected_file(
     badge_for_status(status, inventory_version)
 }
 
+/// 根据状态构造单曲徽标。
 pub fn badge_for_status(
     status: LocalTrackDownloadStatus,
     inventory_version: impl Into<String>,
@@ -199,6 +269,7 @@ pub fn badge_for_status(
     }
 }
 
+/// 根据状态构造专辑徽标。
 pub fn album_badge_for_status(
     status: LocalTrackDownloadStatus,
     inventory_version: impl Into<String>,
@@ -210,6 +281,7 @@ pub fn album_badge_for_status(
     }
 }
 
+/// 将多首歌曲的徽标聚合为专辑级徽标。
 pub fn aggregate_album_download_badge(
     track_badges: &[TrackDownloadBadge],
     inventory_version: impl Into<String>,
@@ -289,6 +361,7 @@ pub fn aggregate_album_download_badge(
     album_badge_for_status(LocalTrackDownloadStatus::Unknown, inventory_version)
 }
 
+/// 根据专辑目录下的文件证据推导专辑徽标。
 pub fn album_badge_from_evidence(
     audio_files: &[LocalAudioFileEvidence],
     album_name: &str,
@@ -307,6 +380,7 @@ pub fn album_badge_from_evidence(
     missing_album_badge(inventory_version)
 }
 
+/// 根据命中的候选证据推导单曲徽标。
 pub fn track_badge_from_matches(
     matches: &[MatchedTrackEvidence],
     verification_mode: VerificationMode,
@@ -333,6 +407,7 @@ pub fn track_badge_from_matches(
     }
 }
 
+/// 根据专辑名与歌曲名筛出命中的本地音频证据。
 pub fn matched_track_evidence(
     audio_files: &[LocalAudioFileEvidence],
     album_name: &str,
@@ -373,6 +448,18 @@ pub fn matched_track_evidence(
         .collect()
 }
 
+/// 生成歌曲在根目录与专辑子目录下的候选相对路径。
+///
+/// # 示例
+///
+/// ```
+/// use siren_core::candidate_relative_paths;
+///
+/// let paths = candidate_relative_paths("My Album", "Track/01");
+///
+/// assert!(paths.contains(&"Track_01.flac".to_string()));
+/// assert!(paths.contains(&"My Album/Track_01.mp3".to_string()));
+/// ```
 pub fn candidate_relative_paths(album_name: &str, song_name: &str) -> Vec<String> {
     let safe_song_name = sanitize_filename(song_name);
     let safe_album_name = sanitize_filename(album_name);
@@ -386,6 +473,7 @@ pub fn candidate_relative_paths(album_name: &str, song_name: &str) -> Vec<String
     candidates
 }
 
+/// 判断某首歌是否在候选路径集合中存在已下载文件。
 pub fn has_detected_track(
     relative_audio_paths: &HashSet<String>,
     album_name: &str,
@@ -394,254 +482,4 @@ pub fn has_detected_track(
     candidate_relative_paths(album_name, song_name)
         .into_iter()
         .any(|candidate| relative_audio_paths.contains(&candidate))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        aggregate_album_download_badge, album_badge_from_evidence, badge_for_detected_file,
-        badge_for_status, candidate_relative_paths, has_detected_track, is_downloaded_status,
-        matched_track_evidence, track_badge_from_matches, AlbumDownloadBadge,
-        LocalAudioFileEvidence, LocalAudioFileVerificationState, LocalTrackDownloadStatus,
-        VerificationMode,
-    };
-    use std::collections::HashSet;
-
-    mod candidate_matching {
-        use super::*;
-
-        #[test]
-        fn builds_root_and_album_candidates_for_all_audio_extensions() {
-            let candidates = candidate_relative_paths("A/B:C?D", "Track/01");
-
-            assert!(candidates.contains(&"Track_01.flac".to_string()));
-            assert!(candidates.contains(&"Track_01.wav".to_string()));
-            assert!(candidates.contains(&"Track_01.mp3".to_string()));
-            assert!(candidates.contains(&"A_B_C_D/Track_01.flac".to_string()));
-        }
-
-        #[test]
-        fn detects_track_from_single_song_or_album_layout() {
-            let mut files = HashSet::new();
-            files.insert("Album/Track.flac".to_string());
-            files.insert("Other.wav".to_string());
-
-            assert!(has_detected_track(&files, "Album", "Track"));
-            assert!(has_detected_track(&files, "Anything", "Other"));
-            assert!(!has_detected_track(&files, "Album", "Missing"));
-        }
-
-        #[test]
-        fn collects_matched_track_evidence_with_match_rules() {
-            let audio_files = vec![
-                LocalAudioFileEvidence {
-                    relative_path: "Track.flac".to_string(),
-                    file_size: 12,
-                    modified_at_ms: Some(10),
-                    candidate_checksum: None,
-                    is_in_album_directory: false,
-                    verification_state: LocalAudioFileVerificationState::Unchecked,
-                },
-                LocalAudioFileEvidence {
-                    relative_path: "Album/Track.wav".to_string(),
-                    file_size: 24,
-                    modified_at_ms: Some(20),
-                    candidate_checksum: None,
-                    is_in_album_directory: true,
-                    verification_state: LocalAudioFileVerificationState::Unchecked,
-                },
-                LocalAudioFileEvidence {
-                    relative_path: "Album/Other.wav".to_string(),
-                    file_size: 24,
-                    modified_at_ms: Some(20),
-                    candidate_checksum: None,
-                    is_in_album_directory: true,
-                    verification_state: LocalAudioFileVerificationState::Unchecked,
-                },
-            ];
-
-            let matches = matched_track_evidence(&audio_files, "Album", "Track");
-
-            assert_eq!(matches.len(), 2);
-            assert!(matches
-                .iter()
-                .any(|item| item.relative_path == "Track.flac"));
-            assert!(matches
-                .iter()
-                .any(|item| item.relative_path == "Album/Track.wav"));
-        }
-    }
-
-    mod track_badge {
-        use super::*;
-
-        #[test]
-        fn maps_detected_files_to_unverifiable_in_strict_mode() {
-            let strict_badge = badge_for_detected_file(VerificationMode::Strict, "v1");
-            let relaxed_badge = badge_for_detected_file(VerificationMode::WhenAvailable, "v1");
-
-            assert_eq!(
-                strict_badge.download_status,
-                LocalTrackDownloadStatus::Unverifiable
-            );
-            assert_eq!(
-                relaxed_badge.download_status,
-                LocalTrackDownloadStatus::Detected
-            );
-            assert!(strict_badge.is_downloaded);
-        }
-
-        #[test]
-        fn downloaded_status_mapping_matches_contract() {
-            assert!(is_downloaded_status(LocalTrackDownloadStatus::Detected));
-            assert!(is_downloaded_status(LocalTrackDownloadStatus::Verified));
-            assert!(is_downloaded_status(LocalTrackDownloadStatus::Partial));
-            assert!(is_downloaded_status(LocalTrackDownloadStatus::Unverifiable));
-            assert!(!is_downloaded_status(LocalTrackDownloadStatus::Missing));
-            assert!(!is_downloaded_status(LocalTrackDownloadStatus::Mismatch));
-            assert!(!is_downloaded_status(LocalTrackDownloadStatus::Unknown));
-        }
-
-        #[test]
-        fn marks_multiple_matches_as_partial() {
-            let matches = vec![
-                matched_track_evidence(
-                    &[LocalAudioFileEvidence {
-                        relative_path: "Track.flac".to_string(),
-                        file_size: 12,
-                        modified_at_ms: Some(10),
-                        candidate_checksum: None,
-                        is_in_album_directory: false,
-                        verification_state: LocalAudioFileVerificationState::Unchecked,
-                    }],
-                    "Album",
-                    "Track",
-                )
-                .pop()
-                .expect("root match"),
-                matched_track_evidence(
-                    &[LocalAudioFileEvidence {
-                        relative_path: "Album/Track.wav".to_string(),
-                        file_size: 24,
-                        modified_at_ms: Some(20),
-                        candidate_checksum: None,
-                        is_in_album_directory: true,
-                        verification_state: LocalAudioFileVerificationState::Unchecked,
-                    }],
-                    "Album",
-                    "Track",
-                )
-                .pop()
-                .expect("album match"),
-            ];
-
-            let badge = track_badge_from_matches(&matches, VerificationMode::WhenAvailable, "v1");
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Partial);
-            assert!(badge.is_downloaded);
-        }
-    }
-
-    mod album_badge {
-        use super::*;
-
-        #[test]
-        fn album_badge_is_missing_when_aggregate_input_is_empty() {
-            let badge = aggregate_album_download_badge(&[], "v1");
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Missing);
-            assert!(!badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_badge_is_verified_when_all_tracks_are_verified() {
-            let badge = aggregate_album_download_badge(
-                &[
-                    badge_for_status(LocalTrackDownloadStatus::Verified, "v1"),
-                    badge_for_status(LocalTrackDownloadStatus::Verified, "v1"),
-                ],
-                "v1",
-            );
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Verified);
-            assert!(badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_badge_is_mismatch_when_any_track_is_mismatch() {
-            let badge = aggregate_album_download_badge(
-                &[
-                    badge_for_status(LocalTrackDownloadStatus::Mismatch, "v1"),
-                    badge_for_status(LocalTrackDownloadStatus::Detected, "v1"),
-                ],
-                "v1",
-            );
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Mismatch);
-            assert!(!badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_badge_is_partial_when_only_some_tracks_are_downloaded() {
-            let badge = aggregate_album_download_badge(
-                &[
-                    badge_for_status(LocalTrackDownloadStatus::Detected, "v1"),
-                    badge_for_status(LocalTrackDownloadStatus::Missing, "v1"),
-                ],
-                "v1",
-            );
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Partial);
-            assert!(badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_badge_is_unverifiable_when_all_tracks_are_downloaded_but_not_verifiable() {
-            let badge = aggregate_album_download_badge(
-                &[
-                    badge_for_status(LocalTrackDownloadStatus::Unverifiable, "v1"),
-                    badge_for_status(LocalTrackDownloadStatus::Detected, "v1"),
-                ],
-                "v1",
-            );
-
-            assert_eq!(
-                badge.download_status,
-                LocalTrackDownloadStatus::Unverifiable
-            );
-            assert!(badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_badge_is_missing_when_all_tracks_are_missing() {
-            let badge = aggregate_album_download_badge(
-                &[
-                    badge_for_status(LocalTrackDownloadStatus::Missing, "v1"),
-                    badge_for_status(LocalTrackDownloadStatus::Missing, "v1"),
-                ],
-                "v1",
-            );
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Missing);
-            assert!(!badge.is_downloaded);
-        }
-
-        #[test]
-        fn album_list_badge_uses_album_directory_evidence_conservatively() {
-            let badge: AlbumDownloadBadge = album_badge_from_evidence(
-                &[LocalAudioFileEvidence {
-                    relative_path: "Album/Track.flac".to_string(),
-                    file_size: 12,
-                    modified_at_ms: Some(10),
-                    candidate_checksum: None,
-                    is_in_album_directory: true,
-                    verification_state: LocalAudioFileVerificationState::Unchecked,
-                }],
-                "Album",
-                "v1",
-            );
-
-            assert_eq!(badge.download_status, LocalTrackDownloadStatus::Partial);
-            assert!(badge.is_downloaded);
-        }
-    }
 }

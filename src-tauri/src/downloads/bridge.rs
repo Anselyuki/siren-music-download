@@ -1,22 +1,21 @@
-//! Bridge between `siren-core` download service and Tauri events.
+//! 下载服务与 Tauri 事件系统之间的桥接层。
 //!
-//! This module wires the download execution loop to Tauri's event system so
-//! that the frontend can subscribe to download progress via events.
+//! 该模块负责把 `siren-core` 的下载执行循环接入 Tauri 事件体系，使前端能够通过
+//! 事件订阅下载状态、批次变更与任务进度。
 //!
-//! ## Pipeline architecture
+//! ## 流水线架构
 //!
-//! Tasks within a job are executed in a two-phase pipeline:
+//! 单个批次内的任务按“两阶段流水线”执行：
 //!
 //! ```text
-//! Song N:    [download (network)] ──► channel ──► [write (disk I/O)]
-//! Song N+1:                        [download]  ──► channel ──► [write]
+//! 歌曲 N:    [download (network)] ──► channel ──► [write (disk I/O)]
+//! 歌曲 N+1:                        [download]  ──► channel ──► [write]
 //! ```
 //!
-//! The download phase (HTTP fetching) and write phase (disk I/O, FLAC tagging,
-//! lyric sidecar) overlap so that song N+1's download can start while song N
-//! is still being written.  A bounded `tokio::sync::mpsc` channel provides
-//! back-pressure: at most one completed [`WritePayload`] waits in the buffer,
-//! keeping peak memory to roughly two songs' worth of audio data.
+//! 下载阶段（HTTP 拉取）与写入阶段（磁盘 I/O、FLAC 标签写入、歌词侧车写入）会
+//! 交叠执行，因此当 Song N 仍在写盘时，Song N+1 的下载已经可以开始。这里使用
+//! 有界 `tokio::sync::mpsc` channel 提供背压：缓冲区里最多只会额外等待一个已完成的
+//! [`WritePayload`]，从而把峰值内存控制在大约两首歌的音频数据量。
 
 use crate::app_state::AppState;
 use crate::downloads::events::{
@@ -27,14 +26,16 @@ use siren_core::download::model::{DownloadJobKind, DownloadTaskStatus, InternalD
 use siren_core::download::worker::{CompletedTaskArtifacts, TaskExecutionResult};
 use siren_core::WritePayload;
 use siren_core::{album_cover_exists, album_output_dir, download_album_cover};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Called once during `main.rs` setup.  Starts the download execution loop
-/// that polls for queued jobs and drives tasks to completion.
-pub(crate) fn initialize(app: &AppHandle, state: &AppState) {
+/// 初始化下载桥接执行循环。
+///
+/// 适用于 `main.rs` 启动阶段调用一次；该函数会在后台启动轮询循环，持续消费排队中
+/// 的下载批次并驱动其完成。
+pub fn initialize(app: &AppHandle, state: &AppState) {
     let app = app.clone();
     let state = state.clone();
 
@@ -45,26 +46,26 @@ pub(crate) fn initialize(app: &AppHandle, state: &AppState) {
 
 // ─── Write worker types ──────────────────────────────────────────────────────
 
-/// A job sent through the write channel to the write worker.
+/// 发送到写入 worker 的任务载荷。
 struct WriteJob {
-    /// The task metadata (needed for `execute_write_phase`).
+    /// 任务元数据（供 `execute_write_phase` 使用）。
     task: InternalDownloadTask,
-    /// The payload produced by the download phase.
+    /// 下载阶段产出的写入载荷。
     payload: WritePayload,
-    /// Channel to send the write result back to the pipeline driver.
+    /// 用于把写入结果回传给流水线驱动侧的通道。
     result_tx: tokio::sync::oneshot::Sender<WriteResult>,
-    /// Progress callback dependencies.
+    /// 发出写入进度事件所需的上下文。
     progress_ctx: WriteProgressCtx,
 }
 
-/// Everything the write worker needs to emit progress events.
+/// 写入 worker 发出进度事件所需的全部上下文。
 #[derive(Clone)]
 struct WriteProgressCtx {
     service: Arc<tokio::sync::Mutex<siren_core::DownloadService>>,
     app: AppHandle,
 }
 
-/// Result of a write operation.
+/// 一次写入操作的结果。
 struct WriteResult {
     task: InternalDownloadTask,
     outcome: TaskExecutionResult,
@@ -78,11 +79,10 @@ struct StartedJob {
 
 // ─── Main execution loop ─────────────────────────────────────────────────────
 
-/// The main execution loop.
+/// 下载桥接主执行循环。
 ///
-/// Runs forever, polling for queued jobs and processing them with a pipelined
-/// download/write strategy.  Emits Tauri events at each significant state
-/// transition.
+/// 该循环会常驻运行，轮询排队中的批次并以下载/写入流水线策略驱动其完成，同时在
+/// 关键状态迁移时持续发出 Tauri 事件。
 async fn execution_loop(app: &AppHandle, state: AppState) {
     let service = Arc::clone(&state.download_service);
     let api = Arc::clone(&state.api);
@@ -264,6 +264,18 @@ async fn start_job(
     })
 }
 
+fn resolve_task_output_dir(
+    job_kind: DownloadJobKind,
+    base_output_dir: &Path,
+    task: &InternalDownloadTask,
+) -> PathBuf {
+    match job_kind {
+        DownloadJobKind::Song | DownloadJobKind::Album | DownloadJobKind::Selection => {
+            album_output_dir(base_output_dir, &task.album_name)
+        }
+    }
+}
+
 async fn prepare_task_output_dir(
     service: &Arc<tokio::sync::Mutex<siren_core::DownloadService>>,
     api: &Arc<siren_core::ApiClient>,
@@ -284,12 +296,7 @@ async fn prepare_task_output_dir(
         (job_kind, PathBuf::from(output_dir))
     };
 
-    let out_dir = match job_kind {
-        DownloadJobKind::Song => base_output_dir,
-        DownloadJobKind::Album | DownloadJobKind::Selection => {
-            album_output_dir(&base_output_dir, &task.album_name)
-        }
-    };
+    let out_dir = resolve_task_output_dir(job_kind, &base_output_dir, task);
 
     if matches!(job_kind, DownloadJobKind::Album) && !album_cover_exists(&out_dir) {
         let _ = tokio::fs::create_dir_all(&out_dir).await;
@@ -457,5 +464,58 @@ fn unpack_task_result(
             None,
         ),
         TaskExecutionResult::Failed(info) => (DownloadTaskStatus::Failed, None, Some(info), None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_task_output_dir;
+    use siren_core::audio::OutputFormat;
+    use siren_core::download::model::{DownloadJobKind, DownloadTaskStatus, InternalDownloadTask};
+    use std::path::Path;
+
+    fn make_task(album_name: &str) -> InternalDownloadTask {
+        InternalDownloadTask {
+            id: "task-1".to_string(),
+            job_id: "job-1".to_string(),
+            song_cid: "song-1".to_string(),
+            song_name: "Song".to_string(),
+            artists: vec!["Artist".to_string()],
+            album_cid: "album-1".to_string(),
+            album_name: album_name.to_string(),
+            status: DownloadTaskStatus::Queued,
+            bytes_done: 0,
+            bytes_total: None,
+            output_path: None,
+            error: None,
+            attempt: 0,
+            song_index: 0,
+            song_count: 1,
+            format: OutputFormat::Flac,
+            download_lyrics: true,
+        }
+    }
+
+    #[test]
+    fn song_jobs_use_album_subdirectory() {
+        let task = make_task("A/B:C?D");
+
+        let out_dir =
+            resolve_task_output_dir(DownloadJobKind::Song, Path::new("/tmp/downloads"), &task);
+
+        assert_eq!(out_dir, Path::new("/tmp/downloads").join("A_B_C_D"));
+    }
+
+    #[test]
+    fn selection_jobs_use_album_subdirectory() {
+        let task = make_task("Album Name");
+
+        let out_dir = resolve_task_output_dir(
+            DownloadJobKind::Selection,
+            Path::new("/tmp/downloads"),
+            &task,
+        );
+
+        assert_eq!(out_dir, Path::new("/tmp/downloads").join("Album Name"));
     }
 }

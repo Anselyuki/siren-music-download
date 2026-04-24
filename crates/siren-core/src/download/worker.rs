@@ -1,25 +1,22 @@
-//! Download worker: executes individual download tasks.
+//! 下载任务执行器。
 //!
-//! The worker is responsible for the actual file download, format conversion,
-//! metadata tagging, and lyric sidecar writing by delegating to the existing
-//! `download_song` function.
+//! 该模块负责执行单个下载任务，包括网络下载、格式转换、标签写入与歌词侧车
+//! 文件写入。
 //!
-//! ## Pipeline support
+//! ## 流水线支持
 //!
-//! In addition to the monolithic [`InternalDownloadTask::execute`], two
-//! split-phase methods are provided for pipelined execution:
+//! 除了串行执行的 [`InternalDownloadTask::execute`] 之外，还提供两段式接口：
 //!
-//! - [`InternalDownloadTask::execute_download_phase`] — network I/O only,
-//!   returns a [`WritePayload`].
-//! - [`InternalDownloadTask::execute_write_phase`] — disk I/O only, consumes
-//!   a [`WritePayload`].
+//! - [`InternalDownloadTask::execute_download_phase`]：仅执行网络下载，返回 [`WritePayload`]。
+//! - [`InternalDownloadTask::execute_write_phase`]：仅执行本地磁盘写入，消费 [`WritePayload`]。
 
 use crate::api::ApiClient;
 use crate::download::model::{
     DownloadErrorCode, DownloadErrorInfo, DownloadTaskProgressEvent, InternalDownloadTask,
 };
 use crate::downloader::{
-    download_song_phase1, write_payload_to_disk, DownloadProvenanceSeed, MetaOverride, WritePayload,
+    download_song_payload, write_payload_to_disk, DownloadProvenanceSeed, MetaOverride,
+    WritePayload,
 };
 use anyhow::Error;
 use std::path::Path;
@@ -27,30 +24,36 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+/// 已完成任务产出的关键工件信息。
+///
+/// 适用于任务执行成功后把最终写盘结果与来源证明一并交还给上层持久化或事件广播。
 #[derive(Debug, Clone)]
 pub struct CompletedTaskArtifacts {
+    /// 最终写出的文件路径。
     pub output_path: String,
+    /// 记录本次下载与写入链路的来源信息。
     pub provenance_seed: DownloadProvenanceSeed,
 }
 
-/// Result of executing a download task.
+/// 下载任务执行结果。
+///
+/// 用于统一表达成功、用户取消与失败三类终态；失败时会附带已分类的
+/// [`DownloadErrorInfo`]，成功时会返回可继续持久化的工件信息。
 #[derive(Debug)]
 pub enum TaskExecutionResult {
-    /// Task completed successfully.
+    /// 任务执行成功。
     Completed(CompletedTaskArtifacts),
-    /// Task was cancelled.
+    /// 任务被用户取消。
     Cancelled,
-    /// Task failed with an error.
+    /// 任务执行失败。
     Failed(DownloadErrorInfo),
 }
 
 impl InternalDownloadTask {
-    /// Execute this download task (monolithic: download + write).
+    /// 串行执行当前任务的下载与写入阶段。
     ///
-    /// This method downloads the song, converts format if needed, writes metadata,
-    /// and optionally saves lyric sidecar.
-    ///
-    /// The `on_progress` callback is invoked with progress updates.
+    /// 该方法会完成歌曲详情拉取、资源下载、格式转换、标签写入以及歌词侧车
+    /// 文件写入。
     pub async fn execute<F>(
         &self,
         api: &ApiClient,
@@ -105,7 +108,7 @@ impl InternalDownloadTask {
         let last_bytes = Arc::new(AtomicU64::new(0));
         let last_time = Arc::new(Mutex::new(start_time));
 
-        let phase1_result = download_song_phase1(
+        let payload_result = download_song_payload(
             api,
             &song,
             &album,
@@ -122,7 +125,7 @@ impl InternalDownloadTask {
                 let on_progress = on_progress.clone();
                 let last_bytes = Arc::clone(&last_bytes);
                 let last_time = Arc::clone(&last_time);
-                move |prog| {
+                move |progress| {
                     let now = Instant::now();
                     let prev_time = {
                         let mut time_guard = last_time.lock().unwrap();
@@ -132,9 +135,9 @@ impl InternalDownloadTask {
                     };
                     let elapsed = now.duration_since(prev_time).as_secs_f64();
 
-                    let prev_bytes = last_bytes.swap(prog.bytes_done, Ordering::Relaxed);
+                    let prev_bytes = last_bytes.swap(progress.bytes_done, Ordering::Relaxed);
                     let speed_bytes_per_sec = if elapsed > 0.0 {
-                        let bytes_delta = prog.bytes_done.saturating_sub(prev_bytes);
+                        let bytes_delta = progress.bytes_done.saturating_sub(prev_bytes);
                         bytes_delta as f64 / elapsed
                     } else {
                         0.0
@@ -143,9 +146,9 @@ impl InternalDownloadTask {
                     on_progress(DownloadTaskProgressEvent {
                         job_id: job_id.clone(),
                         task_id: task_id.clone(),
-                        status: prog.status,
-                        bytes_done: prog.bytes_done,
-                        bytes_total: prog.bytes_total,
+                        status: progress.status,
+                        bytes_done: progress.bytes_done,
+                        bytes_total: progress.bytes_total,
                         song_index,
                         song_count,
                         speed_bytes_per_sec,
@@ -155,7 +158,7 @@ impl InternalDownloadTask {
         )
         .await;
 
-        match phase1_result {
+        match payload_result {
             Ok(payload) => match write_payload_to_disk(&payload, None) {
                 Ok(path) => TaskExecutionResult::Completed(CompletedTaskArtifacts {
                     output_path: path.to_string_lossy().to_string(),
@@ -181,12 +184,9 @@ impl InternalDownloadTask {
         }
     }
 
-    /// Execute only the download (network) phase of this task.
+    /// 仅执行当前任务的网络下载阶段。
     ///
-    /// Returns a [`WritePayload`] on success that can later be passed to
-    /// [`execute_write_phase`](Self::execute_write_phase) on a write worker.
-    /// This enables pipelined execution where song N+1's download overlaps
-    /// with song N's disk write.
+    /// 成功时返回可交给写入线程继续处理的 [`WritePayload`]。
     pub async fn execute_download_phase<F>(
         &self,
         api: &ApiClient,
@@ -238,7 +238,7 @@ impl InternalDownloadTask {
         let last_bytes = Arc::new(AtomicU64::new(0));
         let last_time = Arc::new(Mutex::new(start_time));
 
-        let result = download_song_phase1(
+        let payload_result = download_song_payload(
             api,
             &song,
             &album,
@@ -255,7 +255,7 @@ impl InternalDownloadTask {
                 let on_progress = on_progress.clone();
                 let last_bytes = Arc::clone(&last_bytes);
                 let last_time = Arc::clone(&last_time);
-                move |prog| {
+                move |progress| {
                     let now = Instant::now();
                     let prev_time = {
                         let mut time_guard = last_time.lock().unwrap();
@@ -265,9 +265,9 @@ impl InternalDownloadTask {
                     };
                     let elapsed = now.duration_since(prev_time).as_secs_f64();
 
-                    let prev_bytes = last_bytes.swap(prog.bytes_done, Ordering::Relaxed);
+                    let prev_bytes = last_bytes.swap(progress.bytes_done, Ordering::Relaxed);
                     let speed_bytes_per_sec = if elapsed > 0.0 {
-                        let bytes_delta = prog.bytes_done.saturating_sub(prev_bytes);
+                        let bytes_delta = progress.bytes_done.saturating_sub(prev_bytes);
                         bytes_delta as f64 / elapsed
                     } else {
                         0.0
@@ -276,9 +276,9 @@ impl InternalDownloadTask {
                     on_progress(DownloadTaskProgressEvent {
                         job_id: job_id.clone(),
                         task_id: task_id.clone(),
-                        status: prog.status,
-                        bytes_done: prog.bytes_done,
-                        bytes_total: prog.bytes_total,
+                        status: progress.status,
+                        bytes_done: progress.bytes_done,
+                        bytes_total: progress.bytes_total,
                         song_index,
                         song_count,
                         speed_bytes_per_sec,
@@ -288,7 +288,7 @@ impl InternalDownloadTask {
         )
         .await;
 
-        match result {
+        match payload_result {
             Ok(payload) => Ok(payload),
             Err(e) => {
                 let msg = e.to_string();
@@ -301,10 +301,9 @@ impl InternalDownloadTask {
         }
     }
 
-    /// Execute only the write (disk I/O) phase using a previously obtained
-    /// [`WritePayload`].
+    /// 仅执行当前任务的本地写入阶段。
     ///
-    /// This is the counterpart to [`execute_download_phase`](Self::execute_download_phase).
+    /// 该方法与 [`execute_download_phase`](Self::execute_download_phase) 配对使用。
     pub fn execute_write_phase<F>(
         &self,
         payload: &WritePayload,
@@ -318,13 +317,13 @@ impl InternalDownloadTask {
         let song_index = self.song_index;
         let song_count = self.song_count;
 
-        let progress_adapter = |prog: crate::downloader::DownloadProgress| {
+        let progress_adapter = |progress: crate::downloader::DownloadProgress| {
             on_progress(DownloadTaskProgressEvent {
                 job_id: job_id.clone(),
                 task_id: task_id.clone(),
-                status: prog.status,
-                bytes_done: prog.bytes_done,
-                bytes_total: prog.bytes_total,
+                status: progress.status,
+                bytes_done: progress.bytes_done,
+                bytes_total: progress.bytes_total,
                 song_index,
                 song_count,
                 speed_bytes_per_sec: 0.0,

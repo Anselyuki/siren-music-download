@@ -6,6 +6,7 @@ use crate::logging::{LogCenter, LogLevel, LogPayload};
 use crate::player::stream::{GrowingFileHandle, PlaybackInput, SampleBuffer};
 use crate::player::{AudioPlayer, PlaybackContext, PlaybackQueueEntry};
 use crate::preferences::{AppPreferences, PreferencesStore};
+use crate::search::LibrarySearchService;
 use anyhow::{Context, Result};
 use siren_core::{DownloadManagerSnapshot, DownloadService};
 use souvlaki::{MediaControlEvent, SeekDirection};
@@ -15,8 +16,13 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tauri::Manager;
 use tokio::sync::Mutex;
 
+/// 应用运行期间共享的后端状态容器。
+///
+/// 这是 Tauri command、下载桥接、播放器控制与日志系统共用的高层入口，适用于需要访问跨域后端能力的场景。
+/// 其内部聚合播放器、API 客户端、下载服务、库存服务、偏好存储与日志中心等共享状态。
+/// 该类型应作为长生命周期共享状态使用，而不是按请求临时构造；调用方也不应绕过它直接拼装各子系统依赖。
 #[derive(Clone)]
-pub(crate) struct AppState {
+pub struct AppState {
     pub(crate) player: Arc<AudioPlayer>,
     pub(crate) api: Arc<siren_core::ApiClient>,
     pub(crate) download_service: Arc<Mutex<DownloadService>>,
@@ -26,6 +32,7 @@ pub(crate) struct AppState {
     pub(crate) preferences_store: Arc<PreferencesStore>,
     pub(crate) preferences: Arc<StdMutex<AppPreferences>>,
     pub(crate) log_center: Arc<LogCenter>,
+    pub(crate) library_search_service: LibrarySearchService,
 }
 
 struct PreparedPlaybackInput {
@@ -33,7 +40,12 @@ struct PreparedPlaybackInput {
 }
 
 impl AppState {
-    pub(crate) fn new(app: tauri::AppHandle) -> Result<Self, String> {
+    /// 根据 Tauri 应用句柄初始化全部后端服务与运行时状态。
+    ///
+    /// 适用于应用启动阶段创建唯一的全局后端状态入口。
+    /// 入参 `app` 提供路径、插件与运行时访问能力；返回值为可注入到 Tauri `State` 中的 `AppState`。
+    /// 该方法会加载偏好、恢复下载会话、初始化日志中心与搜索服务，因此应在应用生命周期内只调用一次。
+    pub fn new(app: tauri::AppHandle) -> Result<Self, String> {
         let log_center = Arc::new(LogCenter::new(app.clone())?);
         let player = AudioPlayer::new(app.clone()).map_err(|e| e.to_string())?;
         let api = siren_core::ApiClient::new().map_err(|e| e.to_string())?;
@@ -51,8 +63,11 @@ impl AppState {
         );
         let local_inventory_service =
             LocalInventoryService::new(local_inventory_provenance_store.clone());
+        let search_data_dir = app_data_dir.join("library-search");
         let store = PreferencesStore::new(app_data_dir);
         let preferences = store.load(Some(log_center.as_ref()));
+        let library_search_service =
+            LibrarySearchService::new(search_data_dir, preferences.output_dir.clone());
         let state = Self {
             player: Arc::new(player),
             api: Arc::new(api),
@@ -63,6 +78,7 @@ impl AppState {
             preferences_store: Arc::new(store),
             preferences: Arc::new(StdMutex::new(preferences)),
             log_center,
+            library_search_service,
         };
         if loaded_download_session.should_persist {
             state.persist_download_snapshot(&loaded_download_session.snapshot);
@@ -72,6 +88,49 @@ impl AppState {
 
     pub(crate) fn preferences(&self) -> AppPreferences {
         self.preferences.lock().unwrap().clone()
+    }
+
+    /// 返回当前配置中的根输出目录。
+    ///
+    /// 适用于需要读取当前下载根目录的高层调用方。
+    /// 返回值为当前内存中已生效的输出目录字符串。
+    /// 该接口不会触发偏好重新加载；若调用方关心磁盘上的最新配置，应先完成偏好同步。
+    pub fn output_dir(&self) -> String {
+        self.preferences.lock().unwrap().output_dir.clone()
+    }
+
+    /// 绑定系统媒体控制事件。
+    ///
+    /// 适用于应用启动后启用系统级播放/暂停/切歌控制的场景。
+    /// 成功时返回空值。
+    /// 该接口通常只需要在启动阶段绑定一次；重复绑定可能导致媒体事件处理关系变得难以推断。
+    pub fn bind_media_controls(&self) -> Result<(), String> {
+        let media_state = self.clone();
+        self.player
+            .bind_media_controls(move |event| media_state.handle_media_control(event))
+            .map_err(|error| error.to_string())
+    }
+
+    /// 记录一条结构化日志。
+    ///
+    /// 适用于高层业务在不直接依赖日志中心实现细节的前提下写入统一日志。
+    /// 入参 `payload` 为结构化日志载荷；返回值为空。
+    /// 该接口只负责投递日志，不保证日志已经持久化到磁盘；若需要落盘，应结合退出刷新接口使用。
+    pub fn record_log(&self, payload: LogPayload) {
+        self.log_center.record(payload);
+    }
+
+    /// 按当前日志级别阈值将会话日志刷入持久化日志文件。
+    ///
+    /// 适用于应用退出前、崩溃恢复前置收尾，或需要显式落盘当前会话日志的场景。
+    /// 成功时返回空值。
+    /// 该接口会基于当前偏好的日志级别阈值过滤后再落盘，因此持久化文件内容不一定等于会话内全部日志。
+    pub fn flush_logs_on_exit(&self) -> Result<(), String> {
+        let threshold =
+            LogLevel::parse(&self.preferences.lock().unwrap().log_level).unwrap_or(LogLevel::Error);
+        self.log_center
+            .flush_session_to_persistent(threshold)
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn set_preferences(&self, prefs: AppPreferences) {
@@ -287,7 +346,7 @@ impl AppState {
             .await
     }
 
-    pub(crate) fn handle_media_control(&self, event: MediaControlEvent) {
+    fn handle_media_control(&self, event: MediaControlEvent) {
         match event {
             MediaControlEvent::Play => self.handle_media_play(),
             MediaControlEvent::Pause => self.handle_media_pause(),

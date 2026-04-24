@@ -5,6 +5,9 @@ edition = "2021"
 description = "Cross-platform lossless music downloader for Monster Siren Records"
 license = "MIT"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "siren-music-download"
 path = "src/main.rs"
@@ -30,6 +33,8 @@ tokio = { version = "1", features = ["full"] }
 time = { version = "0.3", features = ["formatting"] }
 walkdir = "2"
 tempfile = "3"
+tantivy = "0.22"
+pinyin = { version = "0.11", default-features = false, features = ["plain"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

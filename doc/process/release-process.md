@@ -23,7 +23,12 @@
 
 当前 CI 执行内容：
 
-- `bun run check`
+- `bun run format:check`
+- `bun run lint:eslint`
+- `bun run check:types`
+- `bun run check:svelte`
+- `bun run check:build`
+- `cargo fmt --all --check`
 - `cargo check --workspace`
 - `cargo test --workspace`
 

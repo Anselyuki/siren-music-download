@@ -95,6 +95,39 @@ export interface AlbumDetail {
   songs: SongEntry[];
 }
 
+export type LibrarySearchScope = 'all' | 'albums' | 'songs';
+
+export type LibrarySearchHitField = 'title' | 'artist' | 'intro' | 'belong';
+
+export type LibraryIndexState = 'notReady' | 'building' | 'stale' | 'ready';
+
+export type SearchLibraryResultKind = 'album' | 'song';
+
+export interface SearchLibraryRequest {
+  query: string;
+  scope: LibrarySearchScope;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SearchLibraryResultItem {
+  kind: SearchLibraryResultKind;
+  albumCid: string;
+  songCid: string | null;
+  albumTitle: string;
+  songTitle: string | null;
+  artistLine: string | null;
+  matchedFields: LibrarySearchHitField[];
+}
+
+export interface SearchLibraryResponse {
+  items: SearchLibraryResultItem[];
+  total: number;
+  query: string;
+  scope: LibrarySearchScope;
+  indexState: LibraryIndexState;
+}
+
 export interface ThemePalette {
   accentHex: string;
   accentHoverHex: string;
@@ -117,6 +150,12 @@ export type DownloadJobStatus =
   | 'partiallyFailed'
   | 'failed'
   | 'cancelled';
+
+export type DownloadHistoryScopeFilter = 'all' | 'active' | 'history';
+
+export type DownloadHistoryStatusFilter = 'all' | DownloadJobStatus;
+
+export type DownloadHistoryKindFilter = 'all' | DownloadJobKind;
 
 export type DownloadTaskStatus =
   | 'queued'

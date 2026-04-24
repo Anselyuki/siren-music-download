@@ -2,7 +2,7 @@
 
 > 前端架构、开发约定与验收基线的唯一主文档。
 >
-> 最后更新：2026-04-21
+> 最后更新：2026-04-24
 
 ## 1. 布局与主要组件
 
@@ -29,18 +29,20 @@
 
 ### 主要组件
 
-| 组件 | 职责 |
-|------|------|
-| `App.svelte` | 应用入口，负责专辑加载、播放状态同步、下载状态同步、运行时错误事件接入和各类面板编排 |
-| `AlbumSidebar.svelte` | 左侧专辑导航容器，内部渲染 `AlbumCard.svelte` |
-| `TopToolbar.svelte` | 顶部工具栏，提供刷新、下载任务入口、设置入口和活动下载数量 badge |
-| `AlbumWorkspace.svelte` | 主内容区容器，包裹专辑舞台、专辑信息和曲目列表滚动区 |
-| `SongRow.svelte` | 曲目行；默认点击播放，进入多选模式后改为点击勾选 |
-| `PlayerDock.svelte` | 底部 Dock 容器，内部承载 `AudioPlayer.svelte` |
-| `AudioPlayer.svelte` | 播放器主体，包含播放控制、进度、乱序/循环、歌词/队列切换和当前歌曲下载入口 |
-| `SettingsSheet.svelte` | 右侧设置面板，负责下载参数、通知偏好、日志等级、日志浏览和缓存清理 |
-| `DownloadTasksSheet.svelte` | 右侧下载任务面板，负责任务列表、进度、失败项、取消/重试和历史清理 |
-| `StatusToastHost.svelte` | 顶部 toast 宿主，替代同步 `alert()` 反馈 |
+| 组件                           | 职责                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `App.svelte`                   | 前端根装配层，负责 controller 初始化、Tauri 事件订阅、跨域状态协调和壳层组件编排 |
+| `AlbumSidebarContainer.svelte` | 左侧专辑侧栏装配容器，承接搜索输入、搜索结果、列表态与专辑选择                   |
+| `TopToolbar.svelte`            | 顶部工具栏，提供刷新、下载任务入口、设置入口和活动下载数量 badge                 |
+| `AlbumWorkspace.svelte`        | 主内容区布局容器                                                                 |
+| `AlbumWorkspaceContent.svelte` | 专辑舞台、专辑详情、骨架屏和曲目区组合容器                                       |
+| `SongRow.svelte`               | 曲目行；默认点击播放，进入多选模式后改为点击勾选                                 |
+| `PlayerFlyoutStack.svelte`     | 底部播放器 Dock 与歌词 / 播放队列浮层组合容器                                    |
+| `AudioPlayer.svelte`           | 播放器主体，包含播放控制、进度、乱序/循环、歌词/队列切换和当前歌曲下载入口       |
+| `AppSideSheets.svelte`         | 设置面板与下载任务面板装配容器                                                   |
+| `SettingsSheet.svelte`         | 右侧设置面板，负责下载参数、通知偏好、日志等级、日志浏览和缓存清理               |
+| `DownloadTasksSheet.svelte`    | 右侧下载任务面板，负责任务列表、进度、失败项、取消/重试和历史清理                |
+| `StatusToastHost.svelte`       | 顶部 toast 宿主，替代同步 `alert()` 反馈                                         |
 
 ## 2. 目录结构与域边界
 
@@ -48,18 +50,26 @@
 
 ```text
 src/
-├── App.svelte                         # 当前顶层装配与主要业务编排
+├── App.svelte                         # 当前前端根装配层
+├── main.ts                            # 前端入口
 ├── app.css                            # 全局变量、基础样式、兼容性覆盖
 └── lib/
     ├── components/
     │   ├── AlbumCard.svelte           # 专辑卡片
     │   ├── SongRow.svelte             # 曲目行
     │   ├── AudioPlayer.svelte         # 播放器展示组件
-    │   └── app/                       # 壳层组件
-    │       ├── TopToolbar.svelte
+    │   └── app/                       # 当前壳层组件
     │       ├── AlbumSidebar.svelte
+    │       ├── AlbumSidebarContainer.svelte
+    │       ├── AlbumStage.svelte
     │       ├── AlbumWorkspace.svelte
+    │       ├── AlbumWorkspaceContent.svelte
+    │       ├── AlbumDetailPanel.svelte
+    │       ├── AlbumDetailSkeleton.svelte
     │       ├── PlayerDock.svelte
+    │       ├── PlayerFlyoutStack.svelte
+    │       ├── AppSideSheets.svelte
+    │       ├── TopToolbar.svelte
     │       ├── SettingsSheet.svelte
     │       ├── DownloadTasksSheet.svelte
     │       └── StatusToastHost.svelte
@@ -69,11 +79,12 @@ src/
     │   └── motion.ts                  # 动效参数
     ├── features/
     │   ├── env/store.svelte.ts        # 只读环境状态
-    │   ├── shell/store.svelte.ts      # 全局壳层状态
-    │   ├── library/                   # 专辑与舞台相关逻辑
-    │   ├── player/                    # 播放与歌词相关逻辑
-    │   └── download/                  # 下载任务与偏好相关逻辑
-    ├── api.ts                         # Tauri command bridge
+    │   ├── library/                   # 专辑与搜索 controller / selector / helper
+    │   ├── player/                    # 播放、歌词与队列 controller / helper
+    │   ├── download/                  # 下载任务与筛选 controller / formatter / guard
+    │   └── shell/                     # 全局壳层状态、设置与舞台动效 controller
+    ├── api.ts                         # 主 Tauri command bridge
+    ├── settingsApi.ts                 # 设置面板专用 IPC bridge
     ├── cache.ts                       # 专辑/歌词/主题色缓存
     ├── theme.ts                       # 动态主题变量应用
     └── types.ts                       # 前后端共享结构的 TS 版本
@@ -81,13 +92,13 @@ src/
 
 ### 五域边界
 
-| 域 | 职责 | 状态 |
-|----|------|------|
-| `env` | 只读环境状态：`isMacOS`、`prefersReducedMotion`、视口信号 | 已落地 |
-| `library` | 专辑列表与详情加载、切换竞态控制、封面预加载、舞台滚动状态 | 骨架待迁移 |
-| `player` | 当前歌曲、播放队列、歌词加载与高亮、上一首/下一首/乱序/循环 | 骨架待迁移 |
-| `download` | 任务列表与操作、下载设置与偏好、单曲/整专/多选入口、批量选择模式 | 骨架待迁移 |
-| `shell` | 设置面板与下载面板开关、toast 宿主、全局页面级交互协调 | 已落地 |
+| 域         | 职责                                                               | 当前实现形态       |
+| ---------- | ------------------------------------------------------------------ | ------------------ |
+| `env`      | 只读环境状态：`isMacOS`、`prefersReducedMotion`、视口信号          | store 已接管       |
+| `library`  | 专辑列表 / 详情加载、库内搜索、切换竞态控制、封面预加载、舞台联动  | controller 为主    |
+| `player`   | 当前歌曲、播放队列、歌词加载与高亮、上一首/下一首/乱序/循环        | controller 为主    |
+| `download` | 任务列表与操作、下载设置与偏好、单曲/整专/多选入口、历史筛选       | controller 为主    |
+| `shell`    | 设置面板与下载面板开关、toast 宿主、设置域调用、全局页面级交互协调 | store + controller |
 
 ### 依赖方向
 
@@ -110,6 +121,7 @@ env → library → player → download → shell
 核心 token 维度：`surface`、`text`、`accent`、`motion`、`density`
 
 关键表面语义：
+
 - `surface.window`
 - `surface.sidebar`
 - `surface.workspace`
@@ -138,124 +150,168 @@ env → library → player → download → shell
 
 ### 组件分层
 
-| 层级 | 说明 | 示例 |
-|------|------|------|
-| Primitive | 基础交互原语，来源于 shadcn-svelte / Bits UI | Button、Badge、Sheet、Select、Switch、Progress、Tooltip、Dialog、Skeleton、Tabs、Slider |
-| App Variant | 在原语之上包一层项目视觉和状态约束 | ToolbarIconButton、AppBadge、SheetSectionHeader、DockUtilityButton |
-| Composite | 面向单个业务区域的复合组件 | TopToolbar、AlbumSidebar、AlbumWorkspace、PlayerDock、SettingsSheet、DownloadTasksSheet、LyricsFlyout、PlaylistFlyout |
-| Pattern | 跨多个组件复用的结构模式 | 侧栏列表模式、主工作区模式、右侧 Sheet 模式、状态反馈模式、空状态/加载状态/错误状态模式 |
+| 层级        | 说明                                         | 示例                                                                                                                  |
+| ----------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Primitive   | 基础交互原语，来源于 shadcn-svelte / Bits UI | Button、Badge、Sheet、Select、Switch、Progress、Tooltip、Dialog、Skeleton、Tabs、Slider                               |
+| App Variant | 在原语之上包一层项目视觉和状态约束           | ToolbarIconButton、AppBadge、SheetSectionHeader、DockUtilityButton                                                    |
+| Composite   | 面向单个业务区域的复合组件                   | TopToolbar、AlbumSidebar、AlbumWorkspace、PlayerDock、SettingsSheet、DownloadTasksSheet、LyricsFlyout、PlaylistFlyout |
+| Pattern     | 跨多个组件复用的结构模式                     | 侧栏列表模式、主工作区模式、右侧 Sheet 模式、状态反馈模式、空状态/加载状态/错误状态模式                               |
 
 ### 组件生命周期
 
 沿用 `draft → beta → stable → deprecated` 四状态。
 
 进入 `stable` 的最低要求：
+
 1. 已接入设计 token
 2. 已定义变体边界
 3. 已满足键盘可达性
 4. 已写入说明
 5. 已至少被两个场景复用
 
-## 4. Svelte 5 Store 约定
+## 4. 当前运行时架构约定
 
-> 所有领域 store 必须遵守以下约定。
+> 当前前端已进入 controller + shell composition 的过渡架构阶段。本节描述**当前实现事实**，不是早期目标形态。
 
-### 4.1 store 形态：模块单例 + 显式生命周期
+### 4.1 当前运行时形态
 
-`features/*/store.svelte.ts` 导出一个单例对象，内部用 `$state` / `$derived` 暴露响应式字段，并暴露 `init()` / `dispose()` 方法：
+当前运行时以 `App.svelte` 为根装配层，职责包括：
 
-```ts
-let currentSong = $state<PlayerSong | null>(null);
-let unlisteners: Array<() => void> = [];
+1. 创建并持有 `library / player / download / settings / albumStageMotion` controllers
+2. 订阅 Tauri 事件并把事件分发给对应 controller 或壳层逻辑
+3. 组合 `AlbumSidebarContainer`、`AlbumWorkspaceContent`、`PlayerFlyoutStack`、`AppSideSheets` 等壳层组件
+4. 协调搜索定位、播放器队列、下载面板与设置面板之间的跨域交互
 
-async function init() {
-  if (unlisteners.length) return; // 幂等
-  const un1 = await listen('player-state-changed', handler);
-  unlisteners = [un1];
-}
+当前主真相来源：
 
-function dispose() {
-  unlisteners.forEach(fn => fn());
-  unlisteners = [];
-}
+- `src/App.svelte`
+- `src/lib/features/library/controller.svelte.ts`
+- `src/lib/features/player/controller.svelte.ts`
+- `src/lib/features/download/controller.svelte.ts`
+- `src/lib/features/shell/settings.svelte.ts`
+- `src/lib/features/shell/albumStageMotion.svelte.ts`
 
-export const playerStore = {
-  get currentSong() { return currentSong; },
-  init, dispose,
-};
-```
+### 4.2 controller 与 store 的分工
 
-### 4.2 禁止用 `$effect` 订阅 Tauri 事件
+当前代码中并不是所有领域都由 `store.svelte.ts` 直接承载主运行时：
 
-`$effect` 只能在 Svelte 组件生命周期内运行，模块作用域中无法使用。即使用 `$effect.root()` 创建独立根，销毁时机也不可控。
+- `envStore`、`shellStore` 已承担稳定的全局环境 / 壳层状态职责
+- `library`、`player`、`download` 当前以 controller 工厂为主，`store.svelte.ts` 更多承担过渡性或骨架性角色
+- 因此前端指南中的部分 store 约定应理解为**目标方向或局部适用规则**，不能默认视为当前所有域的真实实现
 
-**结论**：Tauri 事件订阅一律走 `init()` / `dispose()` 手动管理，禁止在 store 模块顶层 `$effect` 中 `listen`。
+### 4.3 初始化与销毁约定
 
-### 4.3 初始化协调顺序
-
-`App.svelte` 的 `onMount` 为唯一初始化协调点，按依赖顺序调用：
+当前 `App.svelte` 使用根级 `$effect` 作为运行时装配与销毁入口，而不是 `onMount` / `onDestroy`：
 
 ```text
-env.init() → shell.init() → library.init() → download.init() → player.init()
+libraryController.init()
+playerController.init()
+downloadController.init()
+envStore.init()
+shellStore.init()
+↓
+订阅 Tauri 事件
+↓
+bootstrapApp()
+↓
+cleanup 时 teardownAppRuntime(...)
 ```
 
-`onDestroy` 中按反向顺序调用 `dispose()`。
+这意味着：
 
-> 注意：init 顺序仅保证域间 store 引用不空，不保证事件不丢。不丢事件由每个 `init()` 自身的 catch-up 规约负责。
+- `App.svelte` 仍然是当前唯一的运行时协调中心
+- 领域初始化顺序和事件 catch-up 逻辑目前由 controller / store 与 `App.svelte` 共同承担
+- 若后续继续推进 store 接管，需要先改写当前 controller 责任边界，再更新本指南
 
-### 4.4 catch-up 责任
+### 4.4 Tauri 事件接入规则
 
-每个订阅 Tauri 事件的 `init()` 必须遵循 **listen → 再 pull 一次快照** 的两段式：
+当前 Tauri 事件订阅主要集中在 `App.svelte`，而不是统一下沉到所有领域 store：
 
-```ts
-async function init() {
-  const un = await listen('xxx', handler);
-  unlisteners = [un];
-  // 订阅完成后立即拉一次当前快照，兜底可能错过的事件
-  try { syncState(await getXxxSnapshot()); } catch { /* 容忍 */ }
-}
-```
+- `player-state-changed`
+- `player-progress`
+- `download-manager-state-changed`
+- `download-job-updated`
+- `download-task-progress`
+- `local-inventory-state-changed`
+- `app-error-recorded`
 
-### 4.5 HMR 安全性
+因此当前约束应表述为：
 
-Svelte 5 模块级单例 + Vite HMR 场景下，旧模块实例被替换时不会自动调用 `dispose()`。每个 store 文件末尾必须加：
+- **UI 展示组件** 不得直接调用 `listen` 或 `invoke`
+- **controller / shell / bridge 层** 可以承担 IPC 与事件接入
+- 是否进一步下沉到 store，属于后续架构收敛议题，而不是当前既成事实
 
-```ts
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => { dispose(); });
-}
-```
+### 4.5 当前组件消费矩阵
+
+**规则**：展示组件仍以 props + events 为主；装配层、壳层容器或具备明确职责边界的壳层面板可以直接消费 controller、store 与专用 IPC bridge。
+
+| 组件                           | 类型     | 当前消费方式                                                             |
+| ------------------------------ | -------- | ------------------------------------------------------------------------ |
+| `App.svelte`                   | 装配层   | 创建 controller、订阅事件、协调壳层，不直接渲染细粒度业务 UI             |
+| `AlbumSidebarContainer.svelte` | 壳层容器 | 消费搜索、列表、选择状态并向 `AlbumSidebar` / `AlbumCard` 下发 props     |
+| `AlbumWorkspaceContent.svelte` | 壳层容器 | 消费专辑详情、骨架屏、选择态、下载态并组合详情与曲目区                   |
+| `PlayerFlyoutStack.svelte`     | 壳层容器 | 消费播放器状态并组合 Dock、歌词和播放队列浮层                            |
+| `AppSideSheets.svelte`         | 壳层容器 | 组合设置面板与下载任务面板                                               |
+| `SettingsSheet.svelte`         | 壳层面板 | 直接消费 `settingsApi.ts` 与 bindable 状态，负责日志 viewer 与设置域调用 |
+| `DownloadTasksSheet.svelte`    | 壳层面板 | 消费下载任务列表、筛选状态与操作回调                                     |
+| `AudioPlayer.svelte`           | 展示     | props + events                                                           |
+| `AlbumCard.svelte`             | 展示     | props + events                                                           |
+| `SongRow.svelte`               | 展示     | props + events                                                           |
 
 ### 4.6 响应式粒度规约
 
 单个 `$state` 承载复合对象（如整个 `DownloadManagerSnapshot`）会让每次进度事件触发所有消费者重新求值。
 
 规约：
+
 1. 高频 progress 数据单独 `$state`，与 `jobs` 结构体拆开
 2. 结构变更（新增/删除 job、状态切换）走 `jobs = [...]` 重建
 3. 任务级字段更新允许细粒度 patch，但需用 `new Map(old).set(...)` 触发响应
 
-### 4.7 组件 ↔ store 消费矩阵
+### 4.7 ESLint 收紧基线（2026-04）
 
-**规则**：容器组件 `import store` 直读；纯展示组件只走 props + events，不得 import store。
+当前前端静态规则基线已收紧到以下状态：
 
-| 组件 | 类型 | 消费方式 |
-|------|------|----------|
-| `App.svelte` | 装配层 | 协调 init/dispose，不读业务字段 |
-| `TopToolbar.svelte` | 容器 | 直读 `library`、`shell`、`download` |
-| `AlbumWorkspace.svelte` | 容器 | 直读 `library`、`player`、`download` |
-| `PlayerDock.svelte` | 容器 | 直读 `player`，再以 props 喂 `AudioPlayer` |
-| `SettingsSheet.svelte` | 容器 | 直读 `download`、`shell` |
-| `DownloadTasksSheet.svelte` | 容器 | 直读 `download`、`shell` |
-| `AudioPlayer.svelte` | 展示 | props + events |
-| `AlbumCard.svelte` | 展示 | props + events |
-| `SongRow.svelte` | 展示 | props + events |
+- `no-unused-vars`：`error`
+- `@typescript-eslint/no-unused-vars`：`error`
+- `@typescript-eslint/no-explicit-any`：`error`
+- `svelte/no-unused-svelte-ignore`：`error`
+
+这意味着：
+
+1. 未使用的导入、局部变量与参数默认必须清理；确实需要保留的占位参数沿用 `_` 前缀约定
+2. 展示层与壳层组件中的 motion helper、事件桥接与缓存调用不得再用 `any` 兜底
+3. `svelte-ignore` 只能在确有必要时保留，且应优先通过改交互或补语义来消除 suppression
+
+本轮同时确认以下规则**暂不直接恢复**：
+
+- `no-unused-expressions`
+- `@typescript-eslint/no-unused-expressions`
+- `svelte/prefer-svelte-reactivity`
+
+原因如下：
+
+1. `*.svelte` 中存在 Svelte 5 `$effect` 依赖表达式写法；直接开启 `no-unused-expressions` 会误伤这类合法模式
+2. `*.svelte.ts` 中已有一批基于 `Map` / `Set` 的领域状态实现；直接开启 `svelte/prefer-svelte-reactivity` 会要求系统性迁移到 `SvelteMap` / `SvelteSet`，已经超出“渐进收紧兼容性关闭约束”的范围
+
+后续如果要继续推进最后一轮收紧，应遵循：
+
+1. 先把 `*.svelte` 中依赖表达式模式收口成 lint 可识别的写法，再评估是否恢复 `no-unused-expressions`
+2. 先为 `features/*.svelte.ts` 制定专门的 `Map` / `Set` 迁移方案，再评估是否恢复 `svelte/prefer-svelte-reactivity`
+3. 在恢复上述规则前，必须至少跑通 `bun run lint:eslint`、`bun run check:types`、`bun run check:svelte` 与 `bun run check:build`
+
+与本轮收紧直接相关的典型改动包括：
+
+- `AlbumCard.svelte` 改为原生可访问按钮语义，避免依赖 `svelte-ignore` 掩盖 a11y 问题
+- 各处 Svelte motion transition helper 统一使用 `MotionTransition`，不再以 `any` 返回
+- `cache.ts` / `api.ts` 通过判别联合与类型守卫收口缓存命中分支，减少调用层断言
 
 ## 5. IPC 规则
 
 **UI 组件禁止直接调用 `invoke` 或 `listen`**。
 
 建立通信网关层：
+
 - 创建领域服务文件（如 `src/lib/api.ts` 或 `features/*/service.ts`）封装 Tauri IPC
 - UI 仅绑定服务层暴露的响应式状态或调用服务层暴露的方法
 - 日志 viewer 只通过 `listLogRecords()` / `getLogFileStatus()` 读取设置页所需摘要，不新增任意路径读文件能力
@@ -323,6 +379,7 @@ if (import.meta.hot) {
 ### 多选下载
 
 入口位于专辑信息区。进入多选模式后显示：
+
 - `多选下载 / 取消多选`
 - `全选`、`清空`、`反选`
 - `下载所选歌曲`
@@ -398,6 +455,7 @@ App.svelte
 ### Latest Verification
 
 通过的命令：
+
 - `bun run check`
 - `bun run check:cargo`
 
@@ -431,6 +489,7 @@ App.svelte
 ### Usage Notes
 
 建议在以下场景重新执行清单：
+
 1. 调整 `src/App.svelte` 中的播放、下载或专辑加载编排
 2. 修改 `src/lib/components/app/` 下的壳层组件
 3. 修改 `src/lib/design/` 下的 token、variant 或 motion 规则
@@ -442,9 +501,10 @@ App.svelte
 2. `libraryStore`、`playerStore`、`downloadStore` 当前主要是骨架文件，尚未接管实际运行时状态
 3. 播放、下载、歌词、滚动舞台等逻辑仍然大量集中在 `src/App.svelte`
 4. 自动化回归保障仍偏弱，当前仍以手工 QA 为主
-5. 下载历史增强、搜索/过滤仍是后续切片；后端下载 session 持久化已落地，前端后续可在此基础上继续做历史视图增强
+5. 下载任务 Sheet 已支持基于现有完整快照的关键字搜索、状态筛选、类型筛选和活跃/历史范围筛选；后续若历史规模继续增长，再评估是否把查询、摘要列表和惰性详情下沉到后端
 
 如果继续推进结构迁移，优先级建议：
+
 1. 把下载域迁出 `src/App.svelte`
 2. 把播放域和歌词域迁出 `src/App.svelte`
 3. 把专辑加载与舞台逻辑迁入 `library` 域
@@ -460,8 +520,8 @@ App.svelte
 
 ## 11. 相关文档
 
-- [BACKEND_API_CONTRACT.md](BACKEND_API_CONTRACT.md)：后端类型、命令、事件的唯一契约来源
-- [BACKEND_COMPLETED_PHASES.md](BACKEND_COMPLETED_PHASES.md)：后端已完成阶段
-- [BACKEND_PENDING_PHASES.md](BACKEND_PENDING_PHASES.md)：后端待办阶段
-- [DECISIONS.md](DECISIONS.md)：技术选型决策记录
-- [RELEASE_PROCESS.md](RELEASE_PROCESS.md)：CI 与发布流程
+- [backend-api-contract.md](../reference/backend-api-contract.md)：后端类型、命令、事件的唯一契约来源
+- [backend-completed-phases.md](../history/backend-completed-phases.md)：后端已完成阶段
+- [backend-pending-phases.md](../history/backend-pending-phases.md)：后端待办阶段
+- [decisions.md](../history/decisions.md)：技术选型决策记录
+- [release-process.md](../process/release-process.md)：CI 与发布流程

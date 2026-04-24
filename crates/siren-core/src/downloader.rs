@@ -1,3 +1,8 @@
+//! 单曲下载、封面下载与写盘编排工具。
+//!
+//! 该模块负责围绕单首歌曲或专辑封面执行网络下载、元数据构建、歌词侧车准备与最终
+//! 落盘，是下载执行阶段连接上游 API、音频处理与本地文件系统的高层入口。
+
 use crate::api::{AlbumDetail, ApiClient, SongDetail};
 use crate::audio::{
     detect_image_mime, encode_cover_as_jpeg, sanitize_filename, save_audio, tag_flac, AudioFormat,
@@ -10,10 +15,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Owned version of [`FlacMetadata`] for sending across async boundaries.
+/// `FlacMetadata` 的拥有型版本，可安全跨异步边界传递。
 ///
-/// Unlike the borrowed `FlacMetadata<'a>`, this struct owns all its data so it
-/// can be safely sent through channels (`Send + 'static`).
+/// 与借用型的 `FlacMetadata<'a>` 不同，这个结构体持有全部字段所有权，适合
+/// 通过 channel 在线程或任务间传递。
 #[derive(Debug, Clone)]
 pub struct OwnedFlacMetadata {
     pub title: String,
@@ -24,12 +29,12 @@ pub struct OwnedFlacMetadata {
     pub total_tracks: Option<u32>,
     pub disc_number: Option<u32>,
     pub total_discs: Option<u32>,
-    /// JPEG-encoded cover art bytes, if available.
+    /// 已编码为 JPEG 的封面字节；没有可嵌入封面时为 `None`。
     pub cover_jpeg: Option<Vec<u8>>,
 }
 
 impl OwnedFlacMetadata {
-    /// Create a borrowed [`FlacMetadata`] referencing this struct's data.
+    /// 构造一个借用当前结构体字段的 [`FlacMetadata`] 视图。
     pub fn as_borrowed(&self) -> FlacMetadata<'_> {
         FlacMetadata {
             title: &self.title,
@@ -48,36 +53,41 @@ impl OwnedFlacMetadata {
     }
 }
 
-/// Payload produced by the download phase, carrying all data needed to write
-/// the song to disk. This is the message type sent from the download stage
-/// to the write worker in a pipeline configuration.
+/// 记录一次下载产物来源链路的种子数据。
+///
+/// 适用于后续构造本地库存来源证明、校验下载是否来自可信上游，或在写盘后为
+/// 音频文件补充可追溯元信息。
 #[derive(Debug, Clone)]
 pub struct DownloadProvenanceSeed {
-    /// The upstream source URL used for the download.
+    /// 本次下载所使用的上游音频源地址。
     pub source_url: String,
-    /// MD5 of the original downloaded audio bytes before any conversion/tagging.
+    /// 原始音频字节在任何转码或写标签前的 MD5 校验值。
     pub source_audio_checksum: String,
-    /// Stable digest describing the write pipeline applied to the source bytes.
+    /// 描述本次写入流水线的稳定指纹，用于区分不同处理路径。
     pub processing_fingerprint: String,
 }
 
+/// 下载阶段产出的写入载荷，包含后续落盘所需的全部数据。
+///
+/// 适用于把网络下载阶段与本地写盘阶段解耦：调用方可以先生成该载荷，再交给
+/// 阻塞任务或独立写入线程执行 [`write_payload_to_disk`]。
 #[derive(Debug)]
 pub struct WritePayload {
-    /// Complete audio data buffered in memory.
+    /// 完整的音频字节数据。
     pub audio_bytes: Vec<u8>,
-    /// Directory where the audio file should be written.
+    /// 音频文件写入目录。
     pub output_dir: PathBuf,
-    /// Base name for the output file (before sanitization/extension).
+    /// 输出文件基础名（不含扩展名）。
     pub base_name: String,
-    /// Target output format.
+    /// 目标输出格式。
     pub format: OutputFormat,
-    /// FLAC metadata to write (only used when output is FLAC).
+    /// 仅在输出为 FLAC 时使用的标签元数据。
     pub flac_metadata: Option<OwnedFlacMetadata>,
-    /// Lyric text content, if lyrics were downloaded.
+    /// 已下载的歌词文本。
     pub lyric_text: Option<String>,
-    /// Provenance seed captured during the trusted download pipeline.
+    /// 记录可信下载链路来源信息的种子数据。
     pub provenance_seed: DownloadProvenanceSeed,
-    /// Cancellation flag shared with the download phase.
+    /// 与下载阶段共享的取消标志。
     pub cancellation_flag: Option<Arc<AtomicBool>>,
 }
 
@@ -227,6 +237,7 @@ fn emit_progress(
     });
 }
 
+/// 根据专辑名生成专辑下载目录路径。
 pub fn album_output_dir(base_out_dir: &Path, album_name: &str) -> PathBuf {
     base_out_dir.join(sanitize_filename(album_name))
 }
@@ -240,6 +251,7 @@ fn cover_extension_from_mime(mime: &str) -> &'static str {
     }
 }
 
+/// 将专辑封面字节写为稳定命名的 `cover.*` 文件。
 pub fn write_album_cover_bytes(album_dir: &Path, cover_bytes: &[u8]) -> Result<PathBuf> {
     std::fs::create_dir_all(album_dir)?;
 
@@ -253,6 +265,7 @@ pub fn write_album_cover_bytes(album_dir: &Path, cover_bytes: &[u8]) -> Result<P
     Ok(cover_path)
 }
 
+/// 判断专辑目录下是否已经存在封面文件。
 pub fn album_cover_exists(album_dir: &Path) -> bool {
     ["jpg", "png", "gif", "webp"]
         .iter()
@@ -260,6 +273,9 @@ pub fn album_cover_exists(album_dir: &Path) -> bool {
         .any(|path| path.exists())
 }
 
+/// 下载专辑封面并写入专辑目录。
+///
+/// 当下载封面失败时返回 `Ok(None)`，以避免把封面失败升级为整首歌下载失败。
 pub async fn download_album_cover(
     client: &ApiClient,
     album: &AlbumDetail,
@@ -285,14 +301,13 @@ pub async fn download_album_cover(
 /// 如果满足上述条件，则会先用纯 Rust 方案转码为 FLAC，再按需写入
 /// FLAC 元数据。
 ///
-/// 回调会在每个下载分块结束后触发，并始终把当前任务视为单文件批次，
-/// 因此 `song_index = 0`、`song_count = 1`。
+/// 下载分块期间持续回调，并在写盘开始前额外上报一次 `Writing` 阶段进度；
+/// 回调始终把当前任务视为单文件批次，因此 `song_index = 0`、`song_count = 1`。
 ///
 /// 返回最终写入的文件路径。
 ///
-/// This is a convenience wrapper that runs [`download_song_phase1`] followed
-/// by [`write_payload_to_disk`] sequentially. For pipelined execution, call
-/// those two functions separately.
+/// 这是一个便捷封装：它会顺序执行下载阶段 helper 与 [`write_payload_to_disk`]。
+/// 如果需要流水线式执行，请分别调用这两个阶段。
 pub async fn download_song(
     client: &ApiClient,
     song: &SongDetail,
@@ -305,9 +320,9 @@ pub async fn download_song(
     on_progress: impl Fn(DownloadProgress) + Send + Sync + 'static,
 ) -> Result<PathBuf> {
     let progress_fn = Arc::new(on_progress);
-    let pfn_phase1 = Arc::clone(&progress_fn);
+    let payload_progress_fn = Arc::clone(&progress_fn);
 
-    let payload = download_song_phase1(
+    let payload = download_song_payload(
         client,
         song,
         album,
@@ -316,21 +331,19 @@ pub async fn download_song(
         download_lyrics,
         meta,
         cancellation_flag,
-        move |p| pfn_phase1(p),
+        move |p| payload_progress_fn(p),
     )
     .await?;
 
     write_payload_to_disk(&payload, Some(progress_fn.as_ref()))
 }
 
-/// Phase 1 of a pipelined download: fetches cover, lyrics and audio data over
-/// the network, then returns a [`WritePayload`] that carries everything needed
-/// to write the song to disk.
+/// 流水线下载的下载阶段：执行封面、歌词与音频的网络拉取，并返回后续写盘
+/// 所需的 [`WritePayload`]。
 ///
-/// This function performs all I/O that hits the network but does **not** touch
-/// the filesystem. The returned payload can be sent to a write worker that
-/// executes [`write_payload_to_disk`] on a separate task.
-pub async fn download_song_phase1(
+/// 该函数只执行网络相关 I/O，不触碰本地文件系统；返回的载荷可以交给独立的
+/// 写入线程或阻塞任务去执行 [`write_payload_to_disk`]。
+pub(crate) async fn download_song_payload(
     client: &ApiClient,
     song: &SongDetail,
     album: &AlbumDetail,
@@ -363,7 +376,7 @@ pub async fn download_song_phase1(
 
     let name_for_progress = song.name.clone();
     let progress_fn = Arc::new(on_progress);
-    let pfn = Arc::clone(&progress_fn);
+    let download_progress_fn = Arc::clone(&progress_fn);
     let cancellation_flag_for_download = cancellation_flag.clone();
 
     // Stream audio into memory
@@ -380,7 +393,7 @@ pub async fn download_song_phase1(
 
             audio_bytes.extend_from_slice(chunk);
             emit_progress(
-                pfn.as_ref(),
+                download_progress_fn.as_ref(),
                 &name_for_progress,
                 DownloadStage::Downloading,
                 done,
@@ -423,13 +436,12 @@ pub async fn download_song_phase1(
     })
 }
 
-/// Phase 2 of a pipelined download: writes the audio file to disk, tags FLAC
-/// metadata, and writes the lyric sidecar.
+/// 流水线下载的第二阶段：将音频写入磁盘、写入 FLAC 标签，并按需写入歌词侧车
+/// 文件。
 ///
-/// This function only performs local filesystem I/O and can safely run on a
-/// blocking task or a dedicated write worker.
+/// 该函数只执行本地文件系统 I/O，适合运行在阻塞任务或独立写入线程中。
 ///
-/// `on_progress` is called once with `DownloadStage::Writing` before I/O starts.
+/// 如果提供 `on_progress`，会在写入开始前以 `DownloadStage::Writing` 上报一次。
 pub fn write_payload_to_disk(
     payload: &WritePayload,
     on_progress: Option<&dyn Fn(DownloadProgress)>,
@@ -495,7 +507,7 @@ pub fn write_payload_to_disk(
     Ok(out_path)
 }
 
-/// Build owned FLAC metadata from song/album info and optional cover bytes.
+/// 根据歌曲、专辑信息与可选封面字节构造拥有型 FLAC 元数据。
 fn build_owned_flac_metadata(
     song: &SongDetail,
     album: &AlbumDetail,
@@ -580,13 +592,13 @@ pub async fn download_album(
         } else {
             None
         };
-        let prog = on_progress.clone();
+        let progress_fn = on_progress.clone();
         let song_name = song_detail.name.clone();
 
         let audio_bytes = client
             .download_bytes(&song_detail.source_url, move |done, total| {
                 emit_progress(
-                    &prog,
+                    &progress_fn,
                     &song_name,
                     DownloadStage::Downloading,
                     done,

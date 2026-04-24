@@ -1,3 +1,8 @@
+//! 系统媒体会话同步封装。
+//!
+//! 该模块负责把播放器状态映射到系统媒体控制中心，并接入系统级播放、暂停、上下曲
+//! 等控制事件，作为桌面宿主与播放器之间的媒体会话桥接层。
+
 use crate::player::state::PlayerState;
 use anyhow::{Context, Result};
 use souvlaki::{
@@ -10,12 +15,14 @@ use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
 
+/// 系统媒体会话封装。
 pub struct MediaSession {
     controls: Mutex<MediaControls>,
     last_progress_second: Mutex<Option<u64>>,
 }
 
 impl MediaSession {
+    /// 创建新的系统媒体会话实例。
     pub fn new(app: &AppHandle) -> Result<Self> {
         let controls = MediaControls::new(platform_config(app)?)
             .context("Failed to create system media controls")?;
@@ -25,6 +32,7 @@ impl MediaSession {
         })
     }
 
+    /// 绑定系统媒体控制事件处理器。
     pub fn attach<F>(&self, handler: F) -> Result<()>
     where
         F: Fn(MediaControlEvent) + Send + 'static,
@@ -36,6 +44,7 @@ impl MediaSession {
             .context("Failed to attach system media controls handler")
     }
 
+    /// 把当前播放器状态同步到系统媒体会话。
     pub fn sync_state(&self, state: &PlayerState, progress_only: bool) {
         let mut controls = self.controls.lock().unwrap();
 

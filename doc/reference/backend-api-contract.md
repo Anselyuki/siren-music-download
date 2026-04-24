@@ -4,9 +4,9 @@
 
 相关文档：
 
-- [BACKEND_COMPLETED_PHASES.md](BACKEND_COMPLETED_PHASES.md)：后端已完成阶段（Phase 1~10）
-- [BACKEND_PENDING_PHASES.md](BACKEND_PENDING_PHASES.md)：后端待办阶段（Phase 11）
-- [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md)：前端架构与开发指南
+- [backend-completed-phases.md](../history/backend-completed-phases.md)：后端已完成阶段（Phase 1~10）
+- [backend-pending-phases.md](../history/backend-pending-phases.md)：后端待办与增强路线（Phase 11 条件触发项、Phase 12 搜索增强）
+- [frontend-guide.md](../guides/frontend-guide.md)：前端架构与开发指南
 
 ## 共享类型
 
@@ -35,6 +35,11 @@
 - `SongEntry`
 - `SongDetail`
 - `AlbumDetail`
+- `LibrarySearchScope`
+- `LibrarySearchHitField`
+- `SearchLibraryRequest`
+- `SearchLibraryResultItem`
+- `SearchLibraryResponse`
 - `AppPreferences`
 - `NotificationPermissionState`
 - `LogLevel`
@@ -320,6 +325,76 @@
 - `download: AlbumDownloadBadge`
 - `songs: SongEntry[]`
 
+### `LibrarySearchScope`
+
+枚举值（12A）：
+
+- `all`
+- `albums`
+- `songs`
+
+说明：
+
+- 12A 只冻结 `all | albums | songs`
+- `lyrics` 不属于 12A 范围；若后续进入 12C，再扩展该枚举
+
+### `LibrarySearchHitField`
+
+枚举值（12B，已落地）：
+
+- `title`
+- `artist`
+- `intro`
+- `belong`
+
+说明：
+
+- `matchedFields` 表达用户可理解的命中来源
+- `intro` / `belong` 辅助字段命中表达已在代码落地
+- 拼音召回属于实现增强，不单独暴露为命中字段
+- `lyric` 不属于当前范围；若后续进入 12C，再扩展该枚举
+
+### `SearchLibraryRequest`
+
+- `query: string`
+- `scope: LibrarySearchScope`
+- `limit?: number`
+- `offset?: number`
+
+### `SearchLibraryResultItem`
+
+- `kind: 'album' | 'song'`
+- `albumCid: string`
+- `songCid: string | null`
+- `albumTitle: string`
+- `songTitle: string | null`
+- `artistLine: string | null`
+- `matchedFields: LibrarySearchHitField[]`
+
+### `LibraryIndexState`
+
+枚举值（12A）：
+
+- `notReady`
+- `building`
+- `stale`
+- `ready`
+
+说明：
+
+- `notReady`：当前没有可查询的本地 last-ready 搜索快照 / 索引
+- `building`：当前版本正在后台构建，且还没有可回退的 last-ready 结果
+- `stale`：存在 last-ready 本地结果，但尚未追平当前 inventory version
+- `ready`：当前查询命中了与当前 inventory version 对齐的本地索引
+
+### `SearchLibraryResponse`
+
+- `items: SearchLibraryResultItem[]`
+- `total: number`
+- `query: string`
+- `scope: LibrarySearchScope`
+- `indexState: LibraryIndexState`
+
 ### `AppPreferences`
 
 应用偏好持久化到 `{app_data_dir}/preferences.toml`。
@@ -463,6 +538,7 @@
 6. `get_image_data_url(imageUrl: string) -> string`
 7. `get_default_output_dir() -> string`
 8. `clear_response_cache() -> void`
+9. `search_library(request: SearchLibraryRequest) -> SearchLibraryResponse`
 
 返回约束：
 
@@ -471,6 +547,51 @@
 - `get_album_detail` 返回专辑级 `download` 字段，并基于 `songs[].download` 做精确聚合
 - `get_song_detail` 的返回值必须包含 `download` 字段
 - `SongEntry.download` 继续由 `get_album_detail` 内联返回
+
+### 搜索命令约束（Phase 12A + 已落地的 12B 首批增强）
+
+`search_library` 属于只读命令，只在本地已建立的搜索索引上执行查询，不触发在线抓取。
+
+运行时宿主约定：
+
+- 搜索服务默认挂载在 `src-tauri/src/app_state.rs` 管理的共享应用状态中
+- `search_library()` 只调用统一 search service，不在 command 层直接持有 reader / writer
+- 索引初始化、重建入口和生命周期状态由应用级状态统一管理
+
+索引数据来源约定：
+
+- `album_title` / `artist` 来自 `get_albums()` 返回的专辑列表
+- `song_title` / `song` 级 `artist` 来自 `get_album_detail()` 的歌曲列表
+- `intro` / `belong` 来自 `get_album_detail()` 的专辑详情字段，当前已进入索引并参与命中表达
+- 当前实现继续避免为建索引而对每首歌额外执行 `get_song_detail()`
+
+查询验证规则：
+
+- `query` 必须先做 trim；trim 后为空字符串视为无效请求
+- `query` 最大长度 128 字符；超出时拒绝请求并返回错误
+- `scope` 必须为 `all | albums | songs` 之一
+- `limit` 默认 `20`，服务端上限 `50`；超出上限时截断，不报错
+- `offset` 默认 `0`，服务端上限 `500`；超出上限时按最大合法 offset 执行
+- `total` 表示分页前总量
+- `ready + total = 0` 表示查询成功但无命中
+- `notReady | building | stale` 不能与普通空结果混淆，必须通过 `indexState` 显式表达
+
+返回约束：
+
+- `items` 只返回导航所需的最小字段，不返回歌词、preview、raw score 或 analyzer 细节
+- `matchedFields` 只表达 `title | artist | intro | belong` 命中，不暴露底层 tokenizer / n-gram / pinyin analyzer 细节
+- `total` 表示分页前的全量匹配数
+- 不返回全文歌词、整段 intro 或 `belong` 内容
+- 错误信息为前端安全字符串，不暴露索引文件路径、Tantivy 内部结构或歌词文本
+
+测试基线（Phase 12A）：
+
+- 空 query、单字 query、超长 query 的行为
+- `albums` / `songs` / `all` 三种 scope 的过滤行为
+- `limit` / `offset` 的默认值、上限与越界行为
+- `total` 的分页前语义
+- 相同数据快照下结果顺序稳定
+- 标题 / 艺术家等主检索字段的基础排序语义
 
 ### 本地盘点命令
 

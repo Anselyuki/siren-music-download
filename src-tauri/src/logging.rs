@@ -16,9 +16,10 @@ const SESSION_LOG_PREFIX: &str = "session-";
 const SESSION_LOG_SUFFIX: &str = ".jsonl";
 const PERSISTENT_LOG_FILE: &str = "persistent.jsonl";
 
+/// 结构化日志等级。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum LogLevel {
+pub enum LogLevel {
     Debug,
     Info,
     Warn,
@@ -100,16 +101,18 @@ pub(crate) struct AppErrorEvent {
     pub(crate) message: String,
 }
 
+/// 日志查看器要读取的日志文件类型。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum LogFileKind {
+pub enum LogFileKind {
     Session,
     Persistent,
 }
 
+/// 日志查看器查询参数。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerQuery {
+pub struct LogViewerQuery {
     pub(crate) kind: LogFileKind,
     pub(crate) level: Option<LogLevel>,
     pub(crate) domain: Option<String>,
@@ -118,9 +121,10 @@ pub(crate) struct LogViewerQuery {
     pub(crate) offset: Option<usize>,
 }
 
+/// 日志面板使用的单条日志记录视图。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerRecord {
+pub struct LogViewerRecord {
     pub(crate) id: String,
     pub(crate) ts: String,
     pub(crate) level: LogLevel,
@@ -130,23 +134,26 @@ pub(crate) struct LogViewerRecord {
     pub(crate) details: Option<String>,
 }
 
+/// 日志查看器分页结果。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogViewerPage {
+pub struct LogViewerPage {
     pub(crate) records: Vec<LogViewerRecord>,
     pub(crate) total: usize,
     pub(crate) kind: LogFileKind,
 }
 
+/// 会话日志与持久化日志文件的可用状态摘要。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LogFileStatus {
+pub struct LogFileStatus {
     pub(crate) has_session_log: bool,
     pub(crate) has_persistent_log: bool,
 }
 
+/// 后端内部记录日志时使用的结构化载荷。
 #[derive(Debug, Clone)]
-pub(crate) struct LogPayload {
+pub struct LogPayload {
     pub(crate) level: LogLevel,
     pub(crate) domain: String,
     pub(crate) code: String,
@@ -160,7 +167,11 @@ pub(crate) struct LogPayload {
 }
 
 impl LogPayload {
-    pub(crate) fn new(
+    /// 创建一条新的结构化日志载荷。
+    ///
+    /// 入参 `level`、`domain`、`code` 与 `message` 组成最小必需日志字段；返回值可继续
+    /// 链式附加面向用户的消息或诊断细节。
+    pub fn new(
         level: LogLevel,
         domain: impl Into<String>,
         code: impl Into<String>,
@@ -180,12 +191,14 @@ impl LogPayload {
         }
     }
 
-    pub(crate) fn user_message(mut self, value: impl Into<String>) -> Self {
+    /// 设置面向用户展示的消息文本。
+    pub fn user_message(mut self, value: impl Into<String>) -> Self {
         self.user_message = Some(value.into());
         self
     }
 
-    pub(crate) fn details(mut self, value: impl Into<String>) -> Self {
+    /// 设置附加诊断细节。
+    pub fn details(mut self, value: impl Into<String>) -> Self {
         self.details = Some(value.into());
         self
     }
