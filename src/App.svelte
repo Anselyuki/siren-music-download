@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { tick } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { AnimatePresence, motion } from "@humanspeak/svelte-motion";
   import { OverlayScrollbarsComponent } from "overlayscrollbars-svelte";
@@ -46,7 +46,6 @@
     OutputFormat,
     SongEntry,
     PlayerState,
-    PlaybackContext,
     PlaybackQueueEntry,
     DownloadJobSnapshot,
     DownloadManagerSnapshot,
@@ -66,18 +65,14 @@
   } from "$lib/types";
   import { applyThemePalette, DEFAULT_THEME_PALETTE } from "$lib/theme";
   import { getDownloadBadgeLabel, shouldShowDownloadBadge } from "$lib/downloadBadge";
-  import { buildSelectionKey } from "$lib/features/download/formatters";
-  import {
-    hasCurrentDownloadOptions,
-    matchesJobKindFilter,
-    matchesJobScopeFilter,
-    matchesJobSearch,
-    matchesJobStatusFilter,
-    sortDownloadJobs,
-  } from "$lib/features/download/guards";
   import { motionStyles } from "$lib/actions/motionStyles";
   import { envStore } from "$lib/features/env/store.svelte";
   import { shellStore } from "$lib/features/shell/store.svelte";
+  import { createLibraryController } from "$lib/features/library/controller.svelte";
+  import { createPlayerController } from "$lib/features/player/controller.svelte";
+  import { createDownloadController } from "$lib/features/download/controller.svelte";
+  import { clamp, preloadImage } from "$lib/features/library/helpers";
+  import { buildAlbumPlaybackEntries, getSelectedAlbumCoverUrl } from "$lib/features/library/selectors";
   import { toast } from "svelte-sonner";
   import AlbumCard from "$lib/components/AlbumCard.svelte";
   import SongRow from "$lib/components/SongRow.svelte";
@@ -110,120 +105,127 @@
   const delay = (ms: number) =>
     new Promise((resolve) => setTimeout(resolve, ms));
 
-  type RepeatMode = "all" | "one";
   type SongDownloadState = "idle" | "creating" | "queued" | "running";
   type SettingsSheetComponent = typeof import("$lib/components/app/SettingsSheet.svelte").default;
   type DownloadTasksSheetComponent = typeof import("$lib/components/app/DownloadTasksSheet.svelte").default;
 
-  interface PlayerSong {
-    cid: string;
-    name: string;
-    artists: string[];
-    coverUrl: string | null;
-  }
+  const libraryController = createLibraryController({
+    delay,
+    detailSkeletonDelayMs: DETAIL_SKELETON_DELAY_MS,
+    minDetailDisplayMs: MIN_DISPLAY_MS,
+    getAlbums,
+    getAlbumDetail,
+    searchLibrary,
+    preloadAlbumArtwork,
+    setAlbumStageAspectRatio,
+    notifyError,
+  });
 
-  interface LyricLine {
-    id: string;
-    time: number | null;
-    text: string;
-  }
+  const playerController = createPlayerController({
+    playSong: async (songCid, coverUrl, context) => {
+      await playSong(songCid, coverUrl ?? undefined, context ?? undefined);
+    },
+    pausePlayback,
+    resumePlayback,
+    seekCurrentPlayback,
+    getSongLyrics,
+    notifyError,
+  });
 
-  let albums = $state<Album[]>([]);
-  let selectedAlbum = $state<AlbumDetail | null>(null);
-  let selectedAlbumCid = $state<string | null>(null);
+  const downloadController = createDownloadController({
+    createDownloadJob,
+    cancelDownloadJob,
+    cancelDownloadTask,
+    retryDownloadJob,
+    retryDownloadTask,
+    clearDownloadHistory,
+    openDownloadPanel: async (resetFilters = false) => {
+      if (resetFilters) {
+        downloadController.resetFilters();
+      }
+
+      const loaded = await ensureDownloadTasksSheetLoaded();
+      if (!loaded) {
+        return;
+      }
+
+      downloadPanelOpen = true;
+      settingsOpen = false;
+    },
+    getDownloadOptions: () => ({
+      outputDir,
+      format,
+      downloadLyrics,
+    }),
+    notifyInfo,
+    notifyError,
+  });
+
   let outputDir = $state("");
   let format = $state<OutputFormat>("flac");
-  let loadingAlbums = $state(false);
-  let loadingDetail = $state(false);
-  let errorMsg = $state("");
-
-  // Audio player state (synced from Rust backend via Tauri events)
-  let currentSong = $state<PlayerSong | null>(null);
-  let isPlaying = $state(false);
-  let isPaused = $state(false);
-  let isLoading = $state(false);
-  let hasPrevious = $state(false);
-  let hasNext = $state(false);
-  let progress = $state(0);
-  let duration = $state(0);
-  let shuffleEnabled = $state(false);
-  let repeatMode = $state<RepeatMode>("all");
-  let playbackEntries = $state<PlaybackQueueEntry[]>([]);
-  let playbackOrder = $state<PlaybackQueueEntry[]>([]);
-  let playbackIndex = $state(-1);
-  let lyricsOpen = $state(false);
-  let playlistOpen = $state(false);
-  let lyricsLoading = $state(false);
-  let lyricsError = $state("");
-  let lyricsLines = $state<LyricLine[]>([]);
-  let lyricsSongCid = $state<string | null>(null);
-  let downloadingSongCid = $state<string | null>(null);
-  let downloadingAlbumCid = $state<string | null>(null);
-  let creatingSelectionKey = $state<string | null>(null);
   let selectedSongCids = $state<string[]>([]);
   let selectionModeEnabled = $state(false);
   // Download job system state
-  let downloadManager = $state<DownloadManagerSnapshot | null>(null);
   let downloadPanelOpen = $state(false);
   let SettingsSheetView = $state<SettingsSheetComponent | null>(null);
   let DownloadTasksSheetView = $state<DownloadTasksSheetComponent | null>(null);
   let settingsSheetLoader = $state<Promise<SettingsSheetComponent> | null>(null);
   let downloadTasksSheetLoader = $state<Promise<DownloadTasksSheetComponent> | null>(null);
-  let librarySearchQuery = $state("");
-  let librarySearchScope = $state<LibrarySearchScope>("all");
-  let librarySearchLoading = $state(false);
-  let librarySearchResponse = $state<SearchLibraryResponse | null>(null);
-  let pendingScrollToSongCid = $state<string | null>(null);
-  let librarySearchRequestSeq = 0;
-  let librarySearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let downloadSearchQuery = $state("");
-  let downloadScopeFilter = $state<DownloadHistoryScopeFilter>("all");
-  let downloadStatusFilter = $state<DownloadHistoryStatusFilter>("all");
-  let downloadKindFilter = $state<DownloadHistoryKindFilter>("all");
-  // Track current download speed for active tasks
-  let taskSpeedMap = $state<Map<string, number>>(new Map());
-
-  // Computed: number of active/queued/running jobs
-  let activeDownloadCount = $derived(
-    downloadManager
-      ? downloadManager.jobs.filter(
-          (j) => j.status === "running" || j.status === "queued",
-        ).length
-      : 0,
-  );
-  let downloadJobs = $derived(downloadManager?.jobs ?? []);
-  // Track which song is currently being loaded to prevent duplicate play calls
-  let playingCid = $state<string | null>(null);
-  let albumRequestSeq = $state(0);
   let themeRequestSeq = 0;
   let artworkRequestSeq = 0;
-  let lyricRequestSeq = 0;
-  let playbackEndRequestSeq = 0;
-  let lastPlaybackSnapshot = {
-    cid: null as string | null,
-    active: false,
-  };
-  let prefersReducedMotion = $state(false);
-  let showDetailSkeleton = $state(false);
+  let playerStateInitSeq = 0;
+  let playerStateHydratedFromEvent = false;
+  const prefersReducedMotion = $derived(envStore.prefersReducedMotion);
+  const albums = $derived(libraryController.albums);
+  const selectedAlbum = $derived(libraryController.selectedAlbum);
+  const selectedAlbumCid = $derived(libraryController.selectedAlbumCid);
+  const loadingAlbums = $derived(libraryController.loadingAlbums);
+  const loadingDetail = $derived(libraryController.loadingDetail);
+  const errorMsg = $derived(libraryController.errorMsg);
+  const librarySearchQuery = $derived(libraryController.librarySearchQuery);
+  const librarySearchScope = $derived(libraryController.librarySearchScope);
+  const librarySearchLoading = $derived(libraryController.librarySearchLoading);
+  const librarySearchResponse = $derived(libraryController.librarySearchResponse);
+  const pendingScrollToSongCid = $derived(libraryController.pendingScrollToSongCid);
+  const showDetailSkeleton = $derived(libraryController.showDetailSkeleton);
+  const albumRequestSeq = $derived(libraryController.albumRequestSeq);
+  const currentSong = $derived(playerController.currentSong);
+  const isPlaying = $derived(playerController.isPlaying);
+  const isPaused = $derived(playerController.isPaused);
+  const isLoading = $derived(playerController.isLoading);
+  const progress = $derived(playerController.progress);
+  const duration = $derived(playerController.duration);
+  const shuffleEnabled = $derived(playerController.shuffleEnabled);
+  const repeatMode = $derived(playerController.repeatMode);
+  const playbackOrder = $derived(playerController.playbackOrder);
+  const lyricsOpen = $derived(playerController.lyricsOpen);
+  const playlistOpen = $derived(playerController.playlistOpen);
+  const lyricsLoading = $derived(playerController.lyricsLoading);
+  const lyricsError = $derived(playerController.lyricsError);
+  const lyricsLines = $derived(playerController.lyricsLines);
+  const downloadingSongCid = $derived(downloadController.downloadingSongCid);
+  const downloadingAlbumCid = $derived(downloadController.downloadingAlbumCid);
+  const activeDownloadCount = $derived(downloadController.activeDownloadCount);
+  const filteredDownloadJobs = $derived(downloadController.filteredJobs);
+  const hasDownloadHistory = $derived(downloadController.hasDownloadHistory);
   let contentEl = $state<HTMLElement | null>(null);
   let contentScrollbar = $state<OverlayScrollbarsComponentRef<"main"> | null>(
     null,
   );
   let albumStageEl = $state<HTMLElement | null>(null);
   let selectedAlbumArtworkUrl = $state<string | null>(null);
-  let isMacOS = $state(false);
-  let detailSkeletonTimer: ReturnType<typeof setTimeout> | null = null;
+  const isMacOS = $derived(envStore.isMacOS);
   let albumStageAspectRatio = $state(DEFAULT_ALBUM_STAGE_ASPECT_RATIO);
   let albumStageWidth = $state(0);
-  let viewportHeight = $state(0);
+  const viewportHeight = $derived(envStore.viewportHeight);
   let albumStageCollapseOffset = $state(0);
   let albumStageScrollTop = $state(0);
   let albumStageMotionFrame = 0;
   let pendingAlbumStageCollapseOffset = 0;
   let pendingAlbumStageScrollTop = 0;
 
-  const playerHasPrevious = $derived.by(() => playbackOrder.length > 1);
-  const playerHasNext = $derived.by(() => playbackOrder.length > 1);
+  const playerHasPrevious = $derived(playerController.playerHasPrevious);
+  const playerHasNext = $derived(playerController.playerHasNext);
 
   const activeLyricIndex = $derived.by(() => {
     let activeIndex = -1;
@@ -247,20 +249,6 @@
     if (selectedSongCount === 1) return "已选择 1 首";
     return `已选择 ${selectedSongCount} 首`;
   });
-
-  const filteredDownloadJobs = $derived.by(() => {
-    const normalizedQuery = downloadSearchQuery.trim().toLocaleLowerCase();
-    return sortDownloadJobs(downloadJobs).filter((job) => {
-      return (
-        matchesJobSearch(job, normalizedQuery) &&
-        matchesJobScopeFilter(job, downloadScopeFilter) &&
-        matchesJobStatusFilter(job, downloadStatusFilter) &&
-        matchesJobKindFilter(job, downloadKindFilter)
-      );
-    });
-  });
-
-  const hasDownloadHistory = $derived.by(() => downloadJobs.length > 0);
 
   function setContentViewport(instance: OverlayScrollbars) {
     const viewport = instance.elements().viewport;
@@ -309,49 +297,6 @@
     });
   }
 
-  interface ImageMeta {
-    aspectRatio: number;
-  }
-
-  function getImageMeta(image: HTMLImageElement): ImageMeta | null {
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-
-    if (!width || !height) {
-      return null;
-    }
-
-    return {
-      aspectRatio: width / height,
-    };
-  }
-
-  function preloadImage(
-    src: string | null | undefined,
-  ): Promise<ImageMeta | null> {
-    if (!src) return Promise.resolve(null);
-
-    return new Promise((resolve) => {
-      const image = new Image();
-      let settled = false;
-
-      const finish = (meta: ImageMeta | null) => {
-        if (settled) return;
-        settled = true;
-        resolve(meta);
-      };
-
-      image.decoding = "async";
-      image.onload = () => finish(getImageMeta(image));
-      image.onerror = () => finish(null);
-      image.src = src;
-
-      if (image.complete) {
-        queueMicrotask(() => finish(getImageMeta(image)));
-      }
-    });
-  }
-
   async function preloadAlbumArtwork(
     album: AlbumDetail,
   ): Promise<number | null> {
@@ -378,302 +323,6 @@
     albumStageAspectRatio = DEFAULT_ALBUM_STAGE_ASPECT_RATIO;
   }
 
-  function clamp(value: number, min: number, max: number): number {
-    return Math.min(max, Math.max(min, value));
-  }
-
-  function getSelectedAlbumCoverUrl(): string | null {
-    return selectedAlbum?.coverUrl ?? selectedAlbum?.coverDeUrl ?? null;
-  }
-
-  function normalizePlayerSong(state: PlayerState): PlayerSong | null {
-    if (!state.songCid) return null;
-
-    return {
-      cid: state.songCid,
-      name: state.songName ?? "",
-      artists: state.artists,
-      coverUrl: state.coverUrl ?? null,
-    };
-  }
-
-  function buildAlbumPlaybackEntries(
-    album: AlbumDetail | null,
-  ): PlaybackQueueEntry[] {
-    if (!album) return [];
-
-    const coverUrl = album.coverUrl ?? album.coverDeUrl ?? null;
-    return album.songs.map((entry) => ({
-      cid: entry.cid,
-      name: entry.name,
-      artists: entry.artists,
-      coverUrl,
-    }));
-  }
-
-  function buildSinglePlaybackEntry(song: PlayerSong): PlaybackQueueEntry {
-    return {
-      cid: song.cid,
-      name: song.name,
-      artists: song.artists,
-      coverUrl: song.coverUrl,
-    };
-  }
-
-  function shufflePlaybackEntries(
-    entries: PlaybackQueueEntry[],
-    currentCid: string | null,
-  ): PlaybackQueueEntry[] {
-    if (entries.length <= 1) return [...entries];
-
-    const rest = [...entries];
-    let pinnedEntry: PlaybackQueueEntry | null = null;
-
-    if (currentCid) {
-      const pinnedIndex = rest.findIndex((entry) => entry.cid === currentCid);
-      if (pinnedIndex >= 0) {
-        pinnedEntry = rest.splice(pinnedIndex, 1)[0];
-      }
-    }
-
-    for (let index = rest.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      [rest[index], rest[swapIndex]] = [rest[swapIndex], rest[index]];
-    }
-
-    return pinnedEntry ? [pinnedEntry, ...rest] : rest;
-  }
-
-  function applyPlaybackQueue(
-    entries: PlaybackQueueEntry[],
-    currentCid: string | null,
-  ) {
-    playbackEntries = [...entries];
-
-    if (!entries.length) {
-      playbackOrder = [];
-      playbackIndex = -1;
-      return;
-    }
-
-    playbackOrder = shuffleEnabled
-      ? shufflePlaybackEntries(entries, currentCid)
-      : [...entries];
-    playbackIndex = currentCid
-      ? playbackOrder.findIndex((entry) => entry.cid === currentCid)
-      : 0;
-
-    if (playbackIndex < 0) {
-      playbackIndex = 0;
-    }
-  }
-
-  function buildPlaybackContext(
-    order: PlaybackQueueEntry[],
-    currentIndex: number,
-  ): PlaybackContext | undefined {
-    if (!order.length || currentIndex < 0 || currentIndex >= order.length) {
-      return undefined;
-    }
-
-    return {
-      currentIndex,
-      entries: order.map((entry) => ({
-        cid: entry.cid,
-        name: entry.name,
-        artists: entry.artists,
-        coverUrl: entry.coverUrl,
-      })),
-    };
-  }
-
-  function syncPlaybackQueueWithSong(song: PlayerSong | null) {
-    if (!song) {
-      playbackIndex = -1;
-      return;
-    }
-
-    const currentOrderIndex = playbackOrder.findIndex(
-      (entry) => entry.cid === song.cid,
-    );
-    if (currentOrderIndex >= 0) {
-      playbackIndex = currentOrderIndex;
-      return;
-    }
-
-    const currentSourceIndex = playbackEntries.findIndex(
-      (entry) => entry.cid === song.cid,
-    );
-    if (currentSourceIndex >= 0) {
-      applyPlaybackQueue(playbackEntries, song.cid);
-      return;
-    }
-
-    applyPlaybackQueue([buildSinglePlaybackEntry(song)], song.cid);
-  }
-
-  function parseLyricText(source: string): LyricLine[] {
-    const lines = source
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const parsed: LyricLine[] = [];
-
-    for (const rawLine of lines) {
-      const matches = [
-        ...rawLine.matchAll(/\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g),
-      ];
-      const text =
-        rawLine.replace(/\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g, "").trim() ||
-        "♪";
-
-      if (!matches.length) {
-        parsed.push({
-          id: `plain-${parsed.length}`,
-          time: null,
-          text,
-        });
-        continue;
-      }
-
-      for (const match of matches) {
-        const minutes = Number(match[1] ?? 0);
-        const seconds = Number(match[2] ?? 0);
-        const fractionText = match[3] ?? "0";
-        const fraction = Number(`0.${fractionText.padEnd(3, "0")}`);
-        parsed.push({
-          id: `${minutes}:${seconds}:${fractionText}:${parsed.length}`,
-          time: minutes * 60 + seconds + fraction,
-          text,
-        });
-      }
-    }
-
-    return parsed.sort((left, right) => {
-      if (left.time === null && right.time === null) return 0;
-      if (left.time === null) return 1;
-      if (right.time === null) return -1;
-      return left.time - right.time;
-    });
-  }
-
-  async function loadLyrics(songCid: string) {
-    const requestSeq = ++lyricRequestSeq;
-    lyricsSongCid = songCid;
-    lyricsLoading = true;
-    lyricsError = "";
-    lyricsLines = [];
-
-    try {
-      const lyricText = await getSongLyrics(songCid);
-      if (requestSeq !== lyricRequestSeq) return;
-
-      if (!lyricText) {
-        lyricsLoading = false;
-        return;
-      }
-
-      lyricsLines = parseLyricText(lyricText);
-    } catch (error) {
-      if (requestSeq !== lyricRequestSeq) return;
-      lyricsError = error instanceof Error ? error.message : String(error);
-    } finally {
-      if (requestSeq === lyricRequestSeq) {
-        lyricsLoading = false;
-      }
-    }
-  }
-
-  function syncPlayerState(state: PlayerState) {
-    currentSong = normalizePlayerSong(state);
-    isPlaying = state.isPlaying;
-    isPaused = state.isPaused;
-    isLoading = state.isLoading;
-    hasPrevious = state.hasPrevious;
-    hasNext = state.hasNext;
-    progress = state.progress;
-    duration = state.duration;
-
-    if (!state.isLoading) {
-      playingCid = null;
-    }
-
-    syncPlaybackQueueWithSong(currentSong);
-  }
-
-  async function playQueueEntry(
-    entry: PlaybackQueueEntry,
-    order = playbackOrder,
-    index = order.findIndex((candidate) => candidate.cid === entry.cid),
-    options: { forceRestart?: boolean } = {},
-  ) {
-    if (index < 0) return;
-
-    playbackOrder = [...order];
-    playbackIndex = index;
-
-    if (!options.forceRestart) {
-      if (currentSong?.cid === entry.cid && isPaused) {
-        await handleResumePlayback();
-        return;
-      }
-
-      if (currentSong?.cid === entry.cid && (isPlaying || isLoading)) {
-        return;
-      }
-
-      if (playingCid === entry.cid) {
-        return;
-      }
-    }
-
-    playingCid = entry.cid;
-
-    try {
-      await playSong(
-        entry.cid,
-        entry.coverUrl ?? undefined,
-        buildPlaybackContext(order, index),
-      );
-    } catch (error) {
-      playingCid = null;
-      console.error("[ERROR] Failed to play song from queue:", error);
-    }
-  }
-
-  function resolveWrappedQueueIndex(step: 1 | -1): number {
-    if (!playbackOrder.length) return -1;
-    if (playbackIndex < 0) return step > 0 ? 0 : playbackOrder.length - 1;
-    return (playbackIndex + step + playbackOrder.length) % playbackOrder.length;
-  }
-
-  function handleShuffleChange(next: boolean) {
-    shuffleEnabled = next;
-    if (!playbackEntries.length) return;
-
-    const currentCid = currentSong?.cid ?? playbackEntries[0]?.cid ?? null;
-    applyPlaybackQueue(playbackEntries, currentCid);
-  }
-
-  function handleRepeatModeChange(next: RepeatMode) {
-    repeatMode = next;
-  }
-
-  function toggleLyricsPanel() {
-    if (!currentSong) return;
-    lyricsOpen = !lyricsOpen;
-    if (lyricsOpen) {
-      playlistOpen = false;
-    }
-  }
-
-  function togglePlaylistPanel() {
-    if (!currentSong) return;
-    playlistOpen = !playlistOpen;
-    if (playlistOpen) {
-      lyricsOpen = false;
-    }
-  }
 
   function isSongSelected(songCid: string): boolean {
     return selectedSongCids.includes(songCid);
@@ -719,293 +368,6 @@
     }
   }
 
-  function findSelectionDownloadJob(
-    songCids: string[],
-  ): DownloadJobSnapshot | null {
-    if (!downloadManager || songCids.length === 0) return null;
-
-    const targetKey = buildSelectionKey(songCids);
-    return (
-      downloadManager.jobs.find((job) => {
-        if (job.kind !== "selection") return false;
-        if (job.status !== "queued" && job.status !== "running") return false;
-        if (!hasCurrentDownloadOptions(job, outputDir, format, downloadLyrics)) {
-          return false;
-        }
-        return (
-          buildSelectionKey(job.tasks.map((task) => task.songCid)) === targetKey
-        );
-      }) ?? null
-    );
-  }
-
-  function getCurrentSelectionKey(): string | null {
-    return selectedSongCids.length > 0
-      ? buildSelectionKey(selectedSongCids)
-      : null;
-  }
-
-  function isCurrentSelectionCreating(): boolean {
-    const selectionKey = getCurrentSelectionKey();
-    return selectionKey !== null && creatingSelectionKey === selectionKey;
-  }
-
-  function getCurrentSelectionJob(): DownloadJobSnapshot | null {
-    return findSelectionDownloadJob(selectedSongCids);
-  }
-
-  function isSelectionDownloadActionDisabled(): boolean {
-    return (
-      selectedSongCount === 0 ||
-      isCurrentSelectionCreating() ||
-      !!getCurrentSelectionJob()
-    );
-  }
-
-  function findAlbumDownloadJob(albumCid: string): DownloadJobSnapshot | null {
-    if (!downloadManager) return null;
-
-    return (
-      downloadManager.jobs.find((job) => {
-        if (job.kind !== "album") return false;
-        if (job.status !== "queued" && job.status !== "running") return false;
-        if (!hasCurrentDownloadOptions(job, outputDir, format, downloadLyrics)) {
-          return false;
-        }
-        return job.tasks.some((task) => task.albumCid === albumCid);
-      }) ?? null
-    );
-  }
-
-  function findSongDownloadTask(songCid: string): DownloadTaskSnapshot | null {
-    if (!downloadManager) return null;
-
-    for (const job of downloadManager.jobs) {
-      if (job.status !== "queued" && job.status !== "running") continue;
-      const task = job.tasks.find((candidate) => candidate.songCid === songCid);
-      if (task) return task;
-    }
-
-    return null;
-  }
-
-  function isSongDownloadInteractionBlocked(songCid: string): boolean {
-    return downloadingSongCid !== null && downloadingSongCid !== songCid;
-  }
-
-  function getSongDownloadState(songCid: string): SongDownloadState {
-    if (downloadingSongCid === songCid) {
-      return "creating";
-    }
-
-    const task = findSongDownloadTask(songCid);
-    if (!task) {
-      return "idle";
-    }
-
-    if (task.status === "queued") {
-      return "queued";
-    }
-
-    if (
-      task.status === "preparing" ||
-      task.status === "downloading" ||
-      task.status === "writing"
-    ) {
-      return "running";
-    }
-
-    return "idle";
-  }
-
-  function getSongDownloadJob(songCid: string): DownloadJobSnapshot | null {
-    if (!downloadManager) return null;
-
-    return (
-      downloadManager.jobs.find(
-        (job) =>
-          (job.status === "queued" || job.status === "running") &&
-          hasCurrentDownloadOptions(job, outputDir, format, downloadLyrics) &&
-          job.tasks.some((task) => task.songCid === songCid),
-      ) ?? null
-    );
-  }
-
-  async function performSongDownload(songCid: string) {
-    const existingJob = getSongDownloadJob(songCid);
-    if (existingJob) {
-      await openDownloadPanel();
-      return existingJob.id;
-    }
-
-    if (downloadingSongCid) return null;
-
-    downloadingSongCid = songCid;
-    try {
-      const request: CreateDownloadJobRequest = {
-        kind: "song",
-        songCids: [songCid],
-        albumCid: null,
-        options: {
-          outputDir,
-          format,
-          downloadLyrics,
-        },
-      };
-      const job = await createDownloadJob(request);
-      await openDownloadPanel(true);
-      return job.id;
-    } finally {
-      if (downloadingSongCid === songCid) {
-        downloadingSongCid = null;
-      }
-    }
-  }
-
-  async function handleCurrentSongDownload() {
-    if (!currentSong) return;
-    try {
-      const existingJob = getSongDownloadJob(currentSong.cid);
-      await performSongDownload(currentSong.cid);
-      if (existingJob) {
-        notifyInfo("这首歌的下载任务已在队列中或正在执行。");
-      }
-    } catch (error) {
-      console.error("[ERROR] Failed to download current song:", error);
-      notifyError(
-        `下载失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  async function performAlbumDownload(album: AlbumDetail) {
-    const existingJob = findAlbumDownloadJob(album.cid);
-    if (existingJob) {
-      await openDownloadPanel();
-      return existingJob.id;
-    }
-
-    if (downloadingAlbumCid === album.cid) {
-      return null;
-    }
-
-    downloadingAlbumCid = album.cid;
-    try {
-      const request: CreateDownloadJobRequest = {
-        kind: "album",
-        songCids: [],
-        albumCid: album.cid,
-        options: {
-          outputDir,
-          format,
-          downloadLyrics,
-        },
-      };
-      const job = await createDownloadJob(request);
-      await openDownloadPanel(true);
-      return job.id;
-    } finally {
-      if (downloadingAlbumCid === album.cid) {
-        downloadingAlbumCid = null;
-      }
-    }
-  }
-
-  async function performSelectionDownload(songCids: string[]) {
-    if (songCids.length === 0) return null;
-
-    const existingJob = findSelectionDownloadJob(songCids);
-    if (existingJob) {
-      await openDownloadPanel();
-      return existingJob.id;
-    }
-
-    const selectionKey = buildSelectionKey(songCids);
-    if (creatingSelectionKey === selectionKey) {
-      return null;
-    }
-
-    creatingSelectionKey = selectionKey;
-    try {
-      const request: CreateDownloadJobRequest = {
-        kind: "selection",
-        songCids,
-        albumCid: null,
-        options: {
-          outputDir,
-          format,
-          downloadLyrics,
-        },
-      };
-      const job = await createDownloadJob(request);
-      await openDownloadPanel(true);
-      clearSongSelection();
-      selectionModeEnabled = false;
-      return job.id;
-    } finally {
-      if (creatingSelectionKey === selectionKey) {
-        creatingSelectionKey = null;
-      }
-    }
-  }
-
-  async function handleAlbumDownload() {
-    if (!selectedAlbum) return;
-
-    try {
-      const existingJob = findAlbumDownloadJob(selectedAlbum.cid);
-      await performAlbumDownload(selectedAlbum);
-      if (existingJob) {
-        notifyInfo("这张专辑的下载任务已在队列中或正在执行。");
-      }
-    } catch (error) {
-      console.error("[ERROR] Failed to download album:", error);
-      notifyError(
-        `整专下载失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  async function handleSelectionDownload() {
-    if (!selectedAlbum || selectedSongCids.length === 0) return;
-
-    try {
-      const existingJob = findSelectionDownloadJob(selectedSongCids);
-      await performSelectionDownload(selectedSongCids);
-      if (existingJob) {
-        notifyInfo("这组歌曲的下载任务已在队列中或正在执行。");
-      }
-    } catch (error) {
-      console.error("[ERROR] Failed to create selection download job:", error);
-      notifyError(
-        `批量下载失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  async function handlePlaybackEnded(songCid: string) {
-    const requestSeq = ++playbackEndRequestSeq;
-    const currentIndex = playbackOrder.findIndex(
-      (entry) => entry.cid === songCid,
-    );
-    if (currentIndex < 0) return;
-
-    if (repeatMode === "one") {
-      await playQueueEntry(
-        playbackOrder[currentIndex],
-        playbackOrder,
-        currentIndex,
-        { forceRestart: true },
-      );
-      return;
-    }
-
-    const nextIndex = (currentIndex + 1) % playbackOrder.length;
-    if (requestSeq !== playbackEndRequestSeq) return;
-    await playQueueEntry(playbackOrder[nextIndex], playbackOrder, nextIndex, {
-      forceRestart: true,
-    });
-  }
 
   function flushAlbumStageMotion() {
     albumStageMotionFrame = 0;
@@ -1062,10 +424,6 @@
 
   function syncAlbumStageWidth() {
     albumStageWidth = albumStageEl?.clientWidth ?? 0;
-  }
-
-  function syncViewportHeight() {
-    viewportHeight = window.innerHeight || 0;
   }
 
   const albumStageFullHeight = $derived.by(() => {
@@ -1319,27 +677,6 @@
     return fieldAnimate();
   }
 
-  function armDetailSkeleton() {
-    if (detailSkeletonTimer) {
-      clearTimeout(detailSkeletonTimer);
-    }
-
-    showDetailSkeleton = false;
-    detailSkeletonTimer = setTimeout(() => {
-      if (loadingDetail) {
-        showDetailSkeleton = true;
-      }
-    }, DETAIL_SKELETON_DELAY_MS);
-  }
-
-  function clearDetailSkeleton() {
-    if (detailSkeletonTimer) {
-      clearTimeout(detailSkeletonTimer);
-      detailSkeletonTimer = null;
-    }
-    showDetailSkeleton = false;
-  }
-
   $effect(() => {
     const paletteRequestSeq = ++themeRequestSeq;
     const artworkUrl =
@@ -1355,10 +692,9 @@
         const palette = await extractImageTheme(artworkUrl);
         if (paletteRequestSeq !== themeRequestSeq) return;
         applyThemePalette(palette);
-      } catch (e) {
+      } catch {
         if (paletteRequestSeq !== themeRequestSeq) return;
         applyThemePalette(DEFAULT_THEME_PALETTE);
-        console.error("[ERROR] Failed to extract album theme:", e);
       }
     })();
   });
@@ -1377,10 +713,9 @@
         const dataUrl = await getImageDataUrl(sourceUrl);
         if (requestSeq !== artworkRequestSeq) return;
         selectedAlbumArtworkUrl = dataUrl;
-      } catch (error) {
+      } catch {
         if (requestSeq !== artworkRequestSeq) return;
         selectedAlbumArtworkUrl = null;
-        console.warn("[WARN] Failed to resolve album artwork:", error);
       }
     })();
   });
@@ -1432,288 +767,257 @@
     return () => observer.disconnect();
   });
 
-  onMount(() => {
-    envStore.init();
-    shellStore.init();
-
-    isMacOS =
-      /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
-      navigator.userAgent.includes("Mac");
-
-    let unlistenState: (() => void) | null = null;
-    let unlistenProgress: (() => void) | null = null;
-    let unlistenDownloadManager: (() => void) | null = null;
-    let unlistenDownloadJob: (() => void) | null = null;
-    let unlistenDownloadProgress: (() => void) | null = null;
-    let unlistenLocalInventory: (() => void) | null = null;
-    let unlistenAppError: (() => void) | null = null;
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-    function updateReducedMotionPreference() {
-      prefersReducedMotion = mediaQuery.matches;
+  async function bootstrapApp(shouldDispose: () => boolean) {
+    try {
+      await warmCacheManager();
+    } catch {
+      // Keep startup usable if IndexedDB warm start is unavailable.
     }
 
-    function handleWindowResize() {
-      syncViewportHeight();
-      syncAlbumStageWidth();
+    if (shouldDispose()) {
+      return;
     }
 
-    async function initialize() {
-      loadingAlbums = true;
-
-      // Load unified preferences from backend (non-blocking on failure)
-      try {
-        await warmCacheManager();
-      } catch {
-        // Keep startup usable if IndexedDB warm start is unavailable.
+    try {
+      const prefs = await getPreferences();
+      if (shouldDispose()) {
+        return;
       }
-
-      try {
-        const prefs = await getPreferences();
-        outputDir = prefs.outputDir || outputDir;
-        format = prefs.outputFormat || format;
-        downloadLyrics = prefs.downloadLyrics;
-        notifyOnDownloadComplete = prefs.notifyOnDownloadComplete;
-        notifyOnPlaybackChange = prefs.notifyOnPlaybackChange;
-        logLevel = prefs.logLevel;
-        prefsReady = true;
-      } catch {
+      outputDir = prefs.outputDir || outputDir;
+      format = prefs.outputFormat || format;
+      downloadLyrics = prefs.downloadLyrics;
+      notifyOnDownloadComplete = prefs.notifyOnDownloadComplete;
+      notifyOnPlaybackChange = prefs.notifyOnPlaybackChange;
+      logLevel = prefs.logLevel;
+      prefsReady = true;
+    } catch {
+      if (!shouldDispose()) {
         prefsReady = true;
       }
+    }
 
-      try {
-        localInventory = await getLocalInventorySnapshot();
-      } catch {
-        localInventory = null;
-      }
+    const defaultDirPromise = outputDir
+      ? Promise.resolve("")
+      : getDefaultOutputDir().catch(() => "");
 
-      const defaultDirPromise = outputDir
-        ? Promise.resolve("")
-        : getDefaultOutputDir().catch(() => "");
-
-      try {
-        albums = await getAlbums();
-        errorMsg = "";
-      } catch (e) {
-        errorMsg = e instanceof Error ? e.message : String(e);
-        console.error("[ERROR] Failed to load albums:", e);
-      } finally {
-        loadingAlbums = false;
-      }
+    try {
+      const albumList = await libraryController.loadAlbums({ shouldDispose });
 
       const defaultDir = await defaultDirPromise;
+      if (shouldDispose()) {
+        return;
+      }
       if (defaultDir && !outputDir) {
         outputDir = defaultDir;
       }
 
-      // Auto-select the first album on startup without blocking the sidebar list.
-      if (albums.length > 0 && !selectedAlbumCid) {
-        void handleSelectAlbum(albums[0]);
+      try {
+        const snapshot = await getLocalInventorySnapshot();
+        if (shouldDispose()) {
+          return;
+        }
+        libraryController.initializeInventory(snapshot);
+      } catch {
+        if (!shouldDispose()) {
+          libraryController.initializeInventory(null);
+        }
       }
 
-      unlistenState = await listen<PlayerState>(
-        "player-state-changed",
-        (event) => {
-          syncPlayerState(event.payload);
-        },
-      );
-
-      unlistenProgress = await listen<PlayerState>(
-        "player-progress",
-        (event) => {
-          const state = event.payload;
-          progress = state.progress;
-          isPlaying = state.isPlaying;
-          isPaused = state.isPaused;
-          duration = state.duration;
-        },
-      );
-
-      // Subscribe to download events
-      unlistenDownloadManager = await listen<DownloadManagerSnapshot>(
-        "download-manager-state-changed",
-        (event) => {
-          downloadManager = event.payload;
-        },
-      );
-
-      unlistenDownloadJob = await listen<DownloadJobSnapshot>(
-        "download-job-updated",
-        (event) => {
-          const job = event.payload;
-          if (!downloadManager) return;
-          const jobs = downloadManager.jobs.map((j) =>
-            j.id === job.id ? job : j,
-          );
-          downloadManager = { ...downloadManager, jobs };
-        },
-      );
-
-      unlistenDownloadProgress = await listen<DownloadTaskProgressEvent>(
-        "download-task-progress",
-        (event) => {
-          // Progress events update individual tasks in the manager state.
-          // The job-updated event carries the full snapshot, so we just
-          // need to update the task's bytes fields in-place.
-          if (!downloadManager) return;
-          const progress = event.payload;
-
-          // Update speed map (reassign to trigger Svelte 5 reactivity)
-          taskSpeedMap = new Map(taskSpeedMap).set(progress.taskId, progress.speedBytesPerSec);
-
-          const jobIdx = downloadManager.jobs.findIndex(
-            (j) => j.id === progress.jobId,
-          );
-          if (jobIdx < 0) return;
-          const job = downloadManager.jobs[jobIdx];
-          const taskIdx = job.tasks.findIndex((t) => t.id === progress.taskId);
-          if (taskIdx < 0) return;
-          const updatedTasks = [...job.tasks];
-          updatedTasks[taskIdx] = { ...updatedTasks[taskIdx], ...progress };
-          const updatedJob = { ...job, tasks: updatedTasks };
-          const updatedJobs = [...downloadManager.jobs];
-          updatedJobs[jobIdx] = updatedJob;
-          downloadManager = { ...downloadManager, jobs: updatedJobs };
-        },
-      );
-
-      unlistenAppError = await listen<AppErrorEvent>(
-        "app-error-recorded",
-        (event) => {
-          handleAppErrorEvent(event.payload);
-        },
-      );
-
-      unlistenLocalInventory = await listen<LocalInventorySnapshot>(
-        "local-inventory-state-changed",
-        async (event) => {
-          const previousVersion = localInventory?.inventoryVersion ?? null;
-          const previousStatus = localInventory?.status ?? null;
-          localInventory = event.payload;
-          const inventoryVersionChanged =
-            previousVersion !== event.payload.inventoryVersion;
-          const scanJustCompleted =
-            event.payload.status === "completed" && previousStatus !== "completed";
-
-          if (inventoryVersionChanged) {
-            await invalidateInventoryCaches(previousVersion);
-          }
-
-          if (scanJustCompleted) {
-            try {
-              await refreshAlbumsList();
-            } catch {
-              // Keep current album list if refresh fails.
-            }
-
-            const currentSelectedAlbumCid = selectedAlbumCid;
-            if (!currentSelectedAlbumCid) {
-              return;
-            }
-
-            try {
-              const detail = await getAlbumDetail(
-                currentSelectedAlbumCid,
-                event.payload.inventoryVersion,
-              );
-              if (selectedAlbumCid !== currentSelectedAlbumCid) {
-                return;
-              }
-              selectedAlbum = detail;
-            } catch {
-              // Keep current UI state if refresh fails.
-            }
-          }
-        },
-      );
-
-      // Initialize download manager state
-      try {
-        downloadManager = await listDownloadJobs();
-      } catch {
-        // Download manager not available
+      if (albumList.length > 0 && !libraryController.selectedAlbumCid) {
+        clearSongSelection();
+        selectionModeEnabled = false;
+        await libraryController.selectAlbum(albumList[0], {
+          shouldDispose,
+          afterSelect: async () => {
+            await tick();
+            resetContentScroll();
+          },
+        });
+        if (shouldDispose()) {
+          return;
+        }
       }
-
-      try {
-        syncPlayerState(await getPlayerState());
-      } catch {
-        // Player not playing on startup
+    } catch {
+      const defaultDir = await defaultDirPromise;
+      if (shouldDispose()) {
+        return;
+      }
+      if (defaultDir && !outputDir) {
+        outputDir = defaultDir;
       }
     }
 
-    syncViewportHeight();
-    updateReducedMotionPreference();
-    mediaQuery.addEventListener("change", updateReducedMotionPreference);
-    window.addEventListener("resize", handleWindowResize, { passive: true });
-    void initialize();
+    try {
+      const requestSeq = downloadController.beginHydrationAttempt();
+      const manager = await listDownloadJobs();
+      if (shouldDispose()) {
+        return;
+      }
+      downloadController.applyManagerSnapshot(manager, requestSeq);
+    } catch {
+      // Download manager not available
+    }
+
+    try {
+      const requestSeq = ++playerStateInitSeq;
+      const playerState = await getPlayerState();
+      if (shouldDispose()) {
+        return;
+      }
+      if (requestSeq === playerStateInitSeq && !playerStateHydratedFromEvent) {
+        playerController.syncPlayerState(playerState);
+      }
+    } catch {
+      // Player not playing on startup
+    }
+  }
+
+  async function subscribeToTauriEvents(shouldDispose: () => boolean) {
+    const unlisteners: Array<() => void> = [];
+
+    const cleanup = () => {
+      while (unlisteners.length > 0) {
+        unlisteners.pop()?.();
+      }
+    };
+
+    async function register<T>(
+      eventName: string,
+      handler: (event: { payload: T }) => void | Promise<void>,
+    ) {
+      const unlisten = await listen<T>(eventName, async (event) => {
+        if (shouldDispose()) {
+          return;
+        }
+        await handler(event);
+      });
+
+      if (shouldDispose()) {
+        unlisten();
+        return false;
+      }
+
+      unlisteners.push(unlisten);
+      return true;
+    }
+
+    try {
+      if (!(await register<PlayerState>("player-state-changed", (event) => {
+        playerStateHydratedFromEvent = true;
+        playerController.syncPlayerState(event.payload);
+      }))) {
+        return cleanup;
+      }
+
+      if (!(await register<PlayerState>("player-progress", (event) => {
+        playerController.syncPlayerProgress(event.payload);
+      }))) {
+        return cleanup;
+      }
+
+      if (!(await register<DownloadManagerSnapshot>(
+        "download-manager-state-changed",
+        (event) => {
+          downloadController.applyManagerEvent(event.payload);
+        },
+      ))) {
+        return cleanup;
+      }
+
+      if (!(await register<DownloadJobSnapshot>("download-job-updated", (event) => {
+        downloadController.applyJobUpdate(event.payload);
+      }))) {
+        return cleanup;
+      }
+
+      if (!(await register<DownloadTaskProgressEvent>("download-task-progress", (event) => {
+        downloadController.applyTaskProgress(event.payload);
+      }))) {
+        return cleanup;
+      }
+
+      if (!(await register<AppErrorEvent>("app-error-recorded", (event) => {
+        handleAppErrorEvent(event.payload);
+      }))) {
+        return cleanup;
+      }
+
+      if (!(await register<LocalInventorySnapshot>(
+        "local-inventory-state-changed",
+        async (event) => {
+          await libraryController.handleInventoryStateChanged(event.payload, {
+            shouldDispose,
+            invalidateInventoryCaches,
+            onSelectionInvalidated: () => {
+              clearSongSelection();
+              selectionModeEnabled = false;
+            },
+          });
+        },
+      ))) {
+        return cleanup;
+      }
+
+      return cleanup;
+    } catch (error) {
+      cleanup();
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`failed to subscribe tauri events: ${message}`);
+    }
+  }
+
+  function teardownAppRuntime(unsubscribe: (() => void) | null) {
+    shellStore.dispose();
+    envStore.dispose();
+    libraryController.dispose();
+    playerController.dispose();
+    downloadController.dispose();
+    playerStateInitSeq += 1;
+    playerStateHydratedFromEvent = false;
+    if (albumStageMotionFrame) {
+      cancelAnimationFrame(albumStageMotionFrame);
+    }
+    unsubscribe?.();
+  }
+
+  $effect(() => {
+    libraryController.init();
+    playerController.init();
+    downloadController.init();
+    envStore.init();
+    shellStore.init();
+
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        const nextUnsubscribe = await subscribeToTauriEvents(() => disposed);
+        if (disposed) {
+          nextUnsubscribe();
+          return;
+        }
+        unsubscribe = nextUnsubscribe;
+
+        await bootstrapApp(() => disposed);
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+        notifyError(
+          `初始化应用失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    })();
 
     return () => {
-      shellStore.dispose();
-      envStore.dispose();
-      clearDetailSkeleton();
-      if (albumStageMotionFrame) {
-        cancelAnimationFrame(albumStageMotionFrame);
-      }
-      unlistenState?.();
-      unlistenProgress?.();
-      unlistenDownloadManager?.();
-      unlistenDownloadJob?.();
-      unlistenDownloadProgress?.();
-      unlistenLocalInventory?.();
-      unlistenAppError?.();
-      mediaQuery.removeEventListener("change", updateReducedMotionPreference);
-      window.removeEventListener("resize", handleWindowResize);
-      if (librarySearchDebounceTimer) {
-        clearTimeout(librarySearchDebounceTimer);
-      }
+      disposed = true;
+      teardownAppRuntime(unsubscribe);
     };
   });
 
   $effect(() => {
-    const songCid = currentSong?.cid ?? null;
-    const isCurrentActive = Boolean(songCid) && (isPlaying || isPaused || isLoading);
-    const previousSnapshot = lastPlaybackSnapshot;
-
-    if (
-      previousSnapshot.cid &&
-      previousSnapshot.active &&
-      !isCurrentActive &&
-      songCid === previousSnapshot.cid &&
-      duration > 0 &&
-      progress >= Math.max(0, duration - 0.25)
-    ) {
-      void handlePlaybackEnded(previousSnapshot.cid);
-    }
-
-    if (!songCid) {
-      lyricRequestSeq += 1;
-      lyricsSongCid = null;
-      lyricsLines = [];
-      lyricsError = "";
-      lyricsLoading = false;
-      lyricsOpen = false;
-      playlistOpen = false;
-      if (previousSnapshot.cid !== null || previousSnapshot.active) {
-        lastPlaybackSnapshot = { cid: null, active: false };
-      }
-      return;
-    }
-
-    if (
-      previousSnapshot.cid !== songCid ||
-      previousSnapshot.active !== isCurrentActive
-    ) {
-      lastPlaybackSnapshot = {
-        cid: songCid,
-        active: isCurrentActive,
-      };
-    }
-
-    if (songCid === lyricsSongCid) {
-      return;
-    }
-
-    void loadLyrics(songCid);
+    playerController.syncPlaybackLifecycle();
   });
 
   $effect(() => {
@@ -1738,70 +1042,9 @@
         behavior: prefersReducedMotion ? "auto" : "smooth",
         block: "center",
       });
-      pendingScrollToSongCid = null;
+      libraryController.clearPendingScrollToSong(expectedSongCid);
     });
   });
-
-  function setLibrarySearchQuery(query: string) {
-    librarySearchQuery = query;
-  }
-
-  function setLibrarySearchScope(scope: LibrarySearchScope) {
-    librarySearchScope = scope;
-  }
-
-  async function runLibrarySearch(query: string, scope: LibrarySearchScope) {
-    const trimmedQuery = query.trim();
-    const requestSeq = ++librarySearchRequestSeq;
-
-    if (!trimmedQuery) {
-      librarySearchLoading = false;
-      librarySearchResponse = null;
-      return;
-    }
-
-    librarySearchLoading = true;
-    try {
-      const response = await searchLibrary({
-        query: trimmedQuery,
-        scope,
-      });
-      if (requestSeq !== librarySearchRequestSeq) return;
-      librarySearchResponse = response;
-    } catch (error) {
-      if (requestSeq !== librarySearchRequestSeq) return;
-      const message = error instanceof Error ? error.message : String(error);
-      librarySearchResponse = {
-        items: [],
-        total: 0,
-        query: trimmedQuery,
-        scope,
-        indexState: "notReady",
-      };
-      notifyError(`搜索失败：${message}`);
-    } finally {
-      if (requestSeq !== librarySearchRequestSeq) return;
-      librarySearchLoading = false;
-    }
-  }
-
-  function scheduleLibrarySearch() {
-    if (librarySearchDebounceTimer) {
-      clearTimeout(librarySearchDebounceTimer);
-    }
-
-    const trimmedQuery = librarySearchQuery.trim();
-    if (!trimmedQuery) {
-      librarySearchRequestSeq += 1;
-      librarySearchLoading = false;
-      librarySearchResponse = null;
-      return;
-    }
-
-    librarySearchDebounceTimer = setTimeout(() => {
-      void runLibrarySearch(librarySearchQuery, librarySearchScope);
-    }, 220);
-  }
 
   async function handleSelectSearchResult(item: SearchLibraryResultItem) {
     const album = albums.find((candidate) => candidate.cid === item.albumCid);
@@ -1810,56 +1053,15 @@
       return;
     }
 
-    pendingScrollToSongCid = item.kind === "song" ? item.songCid : null;
-    await handleSelectAlbum(album);
-  }
-
-  async function handleSelectAlbum(album: Album) {
-    if (album.cid === selectedAlbumCid && !loadingDetail) {
-      return;
-    }
-
+    libraryController.setPendingScrollToSong(item.kind === "song" ? item.songCid : null);
     clearSongSelection();
     selectionModeEnabled = false;
-
-    const requestSeq = ++albumRequestSeq;
-    selectedAlbumCid = album.cid;
-    loadingDetail = true;
-    if (!selectedAlbum) {
-      armDetailSkeleton();
-    } else {
-      clearDetailSkeleton();
-    }
-
-    const startTime = Date.now();
-    try {
-      const detail = await getAlbumDetail(
-        album.cid,
-        localInventory?.inventoryVersion ?? null,
-      );
-      if (requestSeq !== albumRequestSeq) return;
-      const artworkAspectRatio = await preloadAlbumArtwork(detail);
-      if (requestSeq !== albumRequestSeq) return;
-      selectedAlbum = detail;
-      setAlbumStageAspectRatio(artworkAspectRatio);
-      errorMsg = "";
-      await tick();
-      resetContentScroll();
-    } catch (e) {
-      if (requestSeq !== albumRequestSeq) return;
-      errorMsg = e instanceof Error ? e.message : String(e);
-      console.error("[ERROR] Failed to load album detail:", e);
-    } finally {
-      if (requestSeq !== albumRequestSeq) return;
-      // Ensure minimum display time so animations aren't interrupted
-      const elapsed = Date.now() - startTime;
-      if (elapsed < MIN_DISPLAY_MS) {
-        await delay(MIN_DISPLAY_MS - elapsed);
-      }
-      if (requestSeq !== albumRequestSeq) return;
-      clearDetailSkeleton();
-      loadingDetail = false;
-    }
+    await libraryController.selectAlbum(album, {
+      afterSelect: async () => {
+        await tick();
+        resetContentScroll();
+      },
+    });
   }
 
   function handleContentScroll() {
@@ -1932,7 +1134,6 @@
   let isOutputDirFocused = $state(false);
   let settingsLogRefreshToken = $state(0);
   let prefsReady = $state(false);
-  let localInventory = $state<LocalInventorySnapshot | null>(null);
 
   function handleAppErrorEvent(event: AppErrorEvent) {
     notifyError(event.message);
@@ -1945,14 +1146,6 @@
     inventoryVersion: string | null | undefined,
   ) {
     await invalidateByTag(createInventoryCacheTag(inventoryVersion));
-  }
-
-  $effect(() => {
-    scheduleLibrarySearch();
-  });
-
-  async function refreshAlbumsList() {
-    albums = await getAlbums();
   }
 
   async function savePreferences(): Promise<boolean> {
@@ -1975,7 +1168,9 @@
       logLevel = updated.logLevel;
       return true;
     } catch (e) {
-      console.error("[ERROR] Failed to save preferences:", e);
+      notifyError(
+        `保存设置失败：${e instanceof Error ? e.message : String(e)}`,
+      );
       return false;
     }
   }
@@ -2057,380 +1252,6 @@
     downloadPanelOpen = false;
   }
 
-  // Download job helper functions
-  function getActiveDownloadJob(): DownloadJobSnapshot | null {
-    if (!downloadManager) return null;
-    const manager = downloadManager;
-
-    if (manager.activeJobId) {
-      return (
-        manager.jobs.find((j) => j.id === manager.activeJobId) ?? null
-      );
-    }
-    // Fallback: find first running job
-    return manager.jobs.find((j) => j.status === "running") ?? null;
-  }
-
-  function formatByteSize(bytes: number | null | undefined): string {
-    if (
-      bytes === null ||
-      bytes === undefined ||
-      !Number.isFinite(bytes) ||
-      bytes < 0
-    ) {
-      return "未知大小";
-    }
-
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KB", "MB", "GB", "TB"];
-    let value = bytes;
-    let unitIndex = -1;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex += 1;
-    }
-
-    const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-    return `${value.toFixed(precision)} ${units[unitIndex]}`;
-  }
-
-  function formatSpeed(bytesPerSec: number): string {
-    if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`;
-    const units = ["KB/s", "MB/s", "GB/s"];
-    let value = bytesPerSec;
-    let unitIndex = -1;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex += 1;
-    }
-
-    const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-    return `${value.toFixed(precision)} ${units[unitIndex]}`;
-  }
-
-  function getTaskProgressLabel(task: DownloadTaskSnapshot): string | null {
-    if (task.status !== "downloading" && task.status !== "writing") {
-      return null;
-    }
-
-    if (
-      task.status === "downloading" &&
-      task.bytesTotal &&
-      task.bytesTotal > 0
-    ) {
-      const percent = Math.min(
-        Math.round((task.bytesDone / task.bytesTotal) * 100),
-        100,
-      );
-      const speed = taskSpeedMap.get(task.id);
-      const speedText = speed && speed > 0 ? ` · ${formatSpeed(speed)}` : "";
-      return `${formatByteSize(task.bytesDone)} / ${formatByteSize(task.bytesTotal)} · ${percent}%${speedText}`;
-    }
-
-    if (task.bytesDone > 0) {
-      return `${formatByteSize(task.bytesDone)} 已处理`;
-    }
-
-    return task.status === "writing" ? "正在整理文件..." : "正在接收数据...";
-  }
-
-  function resetDownloadFilters() {
-    downloadSearchQuery = "";
-    downloadScopeFilter = "all";
-    downloadStatusFilter = "all";
-    downloadKindFilter = "all";
-  }
-
-  async function openDownloadPanel(resetFilters = false) {
-    if (resetFilters) {
-      resetDownloadFilters();
-    }
-
-    const loaded = await ensureDownloadTasksSheetLoaded();
-    if (!loaded) {
-      return;
-    }
-
-    downloadPanelOpen = true;
-    settingsOpen = false;
-  }
-
-  function getTaskErrorLabel(task: DownloadTaskSnapshot): string | null {
-    if (!task.error) return null;
-
-    if (task.error.details && task.error.details !== task.error.message) {
-      return `${task.error.message} · ${task.error.details}`;
-    }
-
-    return task.error.message;
-  }
-
-  function getJobErrorSummary(job: DownloadJobSnapshot): string | null {
-    const firstFailedTask = job.tasks.find(
-      (task) => task.status === "failed" && task.error,
-    );
-    if (firstFailedTask) {
-      return getTaskErrorLabel(firstFailedTask);
-    }
-
-    const firstCancelledTask = job.tasks.find(
-      (task) => task.status === "cancelled" && task.error,
-    );
-    if (firstCancelledTask) {
-      return getTaskErrorLabel(firstCancelledTask);
-    }
-
-    if (!job.error) return null;
-
-    if (job.error.details && job.error.details !== job.error.message) {
-      return `${job.error.message} · ${job.error.details}`;
-    }
-
-    return job.error.message;
-  }
-
-  function getJobProgressText(job: DownloadJobSnapshot): string {
-    const terminalCount =
-      job.completedTaskCount + job.failedTaskCount + job.cancelledTaskCount;
-    const activeTask = job.tasks.find(
-      (task) =>
-        task.status === "preparing" ||
-        task.status === "downloading" ||
-        task.status === "writing",
-    );
-
-    const base = `${terminalCount}/${job.taskCount} 首已结束`;
-    if (!activeTask) {
-      return base;
-    }
-
-    const progressLabel = getTaskProgressLabel(activeTask);
-    if (!progressLabel) {
-      return `${base} · 正在处理 ${activeTask.songName}`;
-    }
-
-    return `${base} · ${activeTask.songName} · ${progressLabel}`;
-  }
-
-  function getJobProgress(job: DownloadJobSnapshot): number {
-    if (job.taskCount === 0) return 0;
-
-    const terminalCount =
-      job.completedTaskCount + job.failedTaskCount + job.cancelledTaskCount;
-    const activeTask = job.tasks.find(
-      (task) =>
-        task.status === "preparing" ||
-        task.status === "downloading" ||
-        task.status === "writing",
-    );
-
-    if (!activeTask) {
-      return terminalCount / job.taskCount;
-    }
-
-    const activeTaskProgress =
-      activeTask.status === "downloading" && activeTask.bytesTotal
-        ? activeTask.bytesDone / activeTask.bytesTotal
-        : activeTask.status === "writing"
-          ? 1
-          : 0;
-
-    return Math.min((terminalCount + activeTaskProgress) / job.taskCount, 1);
-  }
-
-  function getJobStatusLabel(job: DownloadJobSnapshot): string {
-    switch (job.status) {
-      case "queued":
-        return "排队中";
-      case "running": {
-        const activeTask = job.tasks.find(
-          (task) =>
-            task.status === "preparing" ||
-            task.status === "downloading" ||
-            task.status === "writing",
-        );
-        const currentIndex = activeTask
-          ? activeTask.songIndex + 1
-          : job.completedTaskCount;
-        return `下载中 (${currentIndex}/${job.taskCount})`;
-      }
-      case "completed":
-        return "已完成";
-      case "partiallyFailed":
-        return `部分失败 (${job.failedTaskCount}/${job.taskCount})`;
-      case "failed":
-        return "失败";
-      case "cancelled":
-        return "已取消";
-      default:
-        return job.status;
-    }
-  }
-
-  function getTaskStatusLabel(task: DownloadTaskSnapshot): string {
-    switch (task.status) {
-      case "queued":
-        return "排队中";
-      case "preparing":
-        return "准备中";
-      case "downloading": {
-        const progressLabel = getTaskProgressLabel(task);
-        return progressLabel ?? "下载中...";
-      }
-      case "writing": {
-        const progressLabel = getTaskProgressLabel(task);
-        return progressLabel ? `写入中 · ${progressLabel}` : "写入中";
-      }
-      case "completed":
-        return "已完成";
-      case "failed":
-        return "失败";
-      case "cancelled":
-        return "已取消";
-      default:
-        return task.status;
-    }
-  }
-
-  function getJobKindLabel(job: DownloadJobSnapshot): string {
-    switch (job.kind) {
-      case "song":
-        return "单曲下载";
-      case "album":
-        return "整专下载";
-      case "selection":
-        return "多选下载";
-      default:
-        return job.kind;
-    }
-  }
-
-  function getSelectionJobAlbumCount(job: DownloadJobSnapshot): number {
-    return new Set(job.tasks.map((task) => task.albumCid)).size;
-  }
-
-  function getSelectionJobScopeLabel(job: DownloadJobSnapshot): string {
-    const albumCount = getSelectionJobAlbumCount(job);
-    if (albumCount <= 1) {
-      const albumName = job.tasks[0]?.albumName;
-      return albumName ? `来自《${albumName}》` : "来自同一张专辑";
-    }
-
-    return `跨 ${albumCount} 张专辑`;
-  }
-
-  function getJobSummaryLabel(job: DownloadJobSnapshot): string {
-    switch (job.kind) {
-      case "song": {
-        const task = job.tasks[0];
-        return task?.albumName ? `来自《${task.albumName}》` : "单曲任务";
-      }
-      case "album":
-        return `${job.taskCount} 首歌曲`;
-      case "selection": {
-        if (job.taskCount <= 1) {
-          return getSelectionJobScopeLabel(job);
-        }
-
-        const albumCount = getSelectionJobAlbumCount(job);
-        if (albumCount <= 1) {
-          return `${job.taskCount} 首歌曲`;
-        }
-
-        return `${job.taskCount} 首歌曲 · 跨 ${albumCount} 张专辑`;
-      }
-      default:
-        return `${job.taskCount} 首歌曲`;
-    }
-  }
-
-  function isJobActive(jobId: string): boolean {
-    return downloadManager?.activeJobId === jobId;
-  }
-
-  function canCancelTask(task: DownloadTaskSnapshot): boolean {
-    return (
-      task.status === "queued" ||
-      task.status === "preparing" ||
-      task.status === "downloading" ||
-      task.status === "writing"
-    );
-  }
-
-  function canRetryTask(task: DownloadTaskSnapshot): boolean {
-    return task.status === "failed" || task.status === "cancelled";
-  }
-
-  function canClearDownloadHistory(): boolean {
-    return !!downloadManager?.jobs.some(
-      (job) =>
-        job.status === "completed" ||
-        job.status === "failed" ||
-        job.status === "cancelled" ||
-        job.status === "partiallyFailed",
-    );
-  }
-
-  async function handleCancelDownloadJob(jobId: string) {
-    try {
-      await cancelDownloadJob(jobId);
-    } catch (e) {
-      console.error("[ERROR] Failed to cancel download job:", e);
-    }
-  }
-
-  async function handleCancelDownloadTask(jobId: string, taskId: string) {
-    try {
-      await cancelDownloadTask(jobId, taskId);
-    } catch (e) {
-      console.error("[ERROR] Failed to cancel download task:", e);
-    }
-  }
-
-  async function handleRetryDownloadJob(jobId: string) {
-    try {
-      await retryDownloadJob(jobId);
-    } catch (e) {
-      console.error("[ERROR] Failed to retry download job:", e);
-    }
-  }
-
-  async function handleRetryDownloadTask(jobId: string, taskId: string) {
-    try {
-      await retryDownloadTask(jobId, taskId);
-    } catch (e) {
-      console.error("[ERROR] Failed to retry download task:", e);
-    }
-  }
-
-  async function handleClearDownloadHistory() {
-    try {
-      const removed = await clearDownloadHistory();
-      if (removed === 0) {
-        notifyInfo("当前没有可清理的下载历史。");
-      }
-    } catch (e) {
-      console.error("[ERROR] Failed to clear download history:", e);
-      notifyError(`清理下载历史失败：${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  async function handleSongDownload(song: SongEntry) {
-    try {
-      const existingJob = getSongDownloadJob(song.cid);
-      await performSongDownload(song.cid);
-      if (existingJob) {
-        notifyInfo("这首歌的下载任务已在队列中或正在执行。");
-      }
-    } catch (error) {
-      console.error("[ERROR] Failed to download song:", error);
-      notifyError(
-        `下载失败：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
 
   async function handlePlay(song: SongEntry) {
     const sourceEntries = buildAlbumPlaybackEntries(selectedAlbum);
@@ -2438,69 +1259,17 @@
       cid: song.cid,
       name: song.name,
       artists: song.artists,
-      coverUrl: getSelectedAlbumCoverUrl(),
+      coverUrl: getSelectedAlbumCoverUrl(selectedAlbum),
     };
     const entries = sourceEntries.length ? sourceEntries : [fallbackEntry];
 
-    applyPlaybackQueue(entries, song.cid);
+    playerController.applyPlaybackQueue(entries, song.cid);
 
     const nextOrder = shuffleEnabled ? [...playbackOrder] : [...entries];
     const nextIndex = nextOrder.findIndex((entry) => entry.cid === song.cid);
     if (nextIndex < 0) return;
 
-    await playQueueEntry(nextOrder[nextIndex], nextOrder, nextIndex);
-  }
-
-  async function handlePausePlayback() {
-    try {
-      await pausePlayback();
-    } catch (e) {
-      console.error("[ERROR] Failed to pause playback:", e);
-    }
-  }
-
-  async function handleResumePlayback() {
-    try {
-      await resumePlayback();
-    } catch (e) {
-      console.error("[ERROR] Failed to resume playback:", e);
-    }
-  }
-
-  async function handleSeekPlayback(positionSecs: number) {
-    if (!duration || duration <= 0 || isLoading) return;
-    try {
-      await seekCurrentPlayback(positionSecs);
-    } catch (e) {
-      console.error("[ERROR] Failed to seek playback:", e);
-    }
-  }
-
-  async function handlePlayNext() {
-    if (!playerHasNext) return;
-
-    const nextIndex = resolveWrappedQueueIndex(1);
-    if (nextIndex < 0) return;
-
-    await playQueueEntry(playbackOrder[nextIndex], playbackOrder, nextIndex);
-  }
-
-  async function handlePlayPrevious() {
-    if (!currentSong) return;
-
-    if (progress > 3 && !isLoading) {
-      await handleSeekPlayback(0);
-      return;
-    }
-
-    const previousIndex = resolveWrappedQueueIndex(-1);
-    if (previousIndex < 0) return;
-
-    await playQueueEntry(
-      playbackOrder[previousIndex],
-      playbackOrder,
-      previousIndex,
-    );
+    await playerController.playQueueEntry(nextOrder[nextIndex], nextOrder, nextIndex);
   }
 
   // Refresh cache and reload current album
@@ -2509,7 +1278,6 @@
   async function handleRefresh() {
     if (isRefreshing) return;
     isRefreshing = true;
-    const requestSeq = ++albumRequestSeq;
 
     clearSongSelection();
     selectionModeEnabled = false;
@@ -2517,53 +1285,14 @@
     try {
       await clearCache();
       await clearResponseCache();
-
-      const nextAlbums = await getAlbums();
-      albums = nextAlbums;
-      if (selectedAlbumCid) {
-        const currentAlbumCid = selectedAlbumCid;
-        loadingDetail = true;
-        if (!selectedAlbum) {
-          armDetailSkeleton();
-        } else {
-          clearDetailSkeleton();
-        }
-        const refreshedAlbum = nextAlbums.find((album) => album.cid === currentAlbumCid);
-        if (refreshedAlbum) {
-          try {
-            const detail = await getAlbumDetail(
-              currentAlbumCid,
-              localInventory?.inventoryVersion ?? null,
-            );
-            if (requestSeq === albumRequestSeq) {
-              const artworkAspectRatio = await preloadAlbumArtwork(detail);
-              if (requestSeq === albumRequestSeq) {
-                setAlbumStageAspectRatio(artworkAspectRatio);
-              }
-            }
-            if (requestSeq === albumRequestSeq) {
-              selectedAlbum = detail;
-              await tick();
-              resetContentScroll();
-            }
-          } catch (e) {
-            if (requestSeq === albumRequestSeq) {
-              console.error("[ERROR] Failed to reload album:", e);
-            }
-          } finally {
-            if (requestSeq === albumRequestSeq) {
-              clearDetailSkeleton();
-              loadingDetail = false;
-            }
-          }
-        } else if (requestSeq === albumRequestSeq) {
-          selectedAlbum = null;
-          clearDetailSkeleton();
-          loadingDetail = false;
-        }
-      }
+      await libraryController.reloadAlbumsAndRefreshCurrentSelection({
+        afterSelect: async () => {
+          await tick();
+          resetContentScroll();
+        },
+      });
     } catch (e) {
-      console.error("[ERROR] Failed to refresh album list:", e);
+      notifyError(`刷新专辑列表失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       await delay(400);
       isRefreshing = false;
@@ -2607,9 +1336,18 @@
       searchScope={librarySearchScope}
       searchLoading={librarySearchLoading}
       searchResponse={librarySearchResponse}
-      onSearchQueryChange={setLibrarySearchQuery}
-      onSearchScopeChange={setLibrarySearchScope}
-      onSelect={handleSelectAlbum}
+      onSearchQueryChange={libraryController.setSearchQuery}
+      onSearchScopeChange={libraryController.setSearchScope}
+      onSelect={(album) => {
+        clearSongSelection();
+        selectionModeEnabled = false;
+        return libraryController.selectAlbum(album, {
+          afterSelect: async () => {
+            await tick();
+            resetContentScroll();
+          },
+        });
+      }}
       onSelectSearchResult={handleSelectSearchResult}
     />
   </OverlayScrollbarsComponent>
@@ -2632,7 +1370,7 @@
       onOpenDownloads={async () => {
         const nextOpen = !downloadPanelOpen;
         if (nextOpen) {
-          await openDownloadPanel();
+          await downloadController.openPanel();
           return;
         }
         downloadPanelOpen = false;
@@ -2829,23 +1567,23 @@
                   <div class="controls album-hero-actions">
                     <motion.button
                       class="btn btn-primary"
-                      onclick={handleAlbumDownload}
+                      onclick={() => downloadController.handleAlbumDownload(selectedAlbum.cid)}
                       disabled={downloadingAlbumCid === selectedAlbum.cid ||
-                        !!findAlbumDownloadJob(selectedAlbum.cid)}
+                        !!downloadController.findAlbumDownloadJob(selectedAlbum.cid)}
                       animate={appButtonAnimate(
                         true,
                         downloadingAlbumCid === selectedAlbum.cid ||
-                          !!findAlbumDownloadJob(selectedAlbum.cid),
+                          !!downloadController.findAlbumDownloadJob(selectedAlbum.cid),
                       )}
                       whileHover={appButtonHover(
                         true,
                         downloadingAlbumCid === selectedAlbum.cid ||
-                          !!findAlbumDownloadJob(selectedAlbum.cid),
+                          !!downloadController.findAlbumDownloadJob(selectedAlbum.cid),
                       )}
                       whileTap={!prefersReducedMotion &&
                       !(
                         downloadingAlbumCid === selectedAlbum.cid ||
-                        !!findAlbumDownloadJob(selectedAlbum.cid)
+                        !!downloadController.findAlbumDownloadJob(selectedAlbum.cid)
                       )
                         ? { y: 0, scale: 0.98, opacity: 0.94 }
                         : undefined}
@@ -2853,7 +1591,7 @@
                     >
                       {#if downloadingAlbumCid === selectedAlbum.cid}
                         正在创建任务...
-                      {:else if findAlbumDownloadJob(selectedAlbum.cid)}
+                      {:else if downloadController.findAlbumDownloadJob(selectedAlbum.cid)}
                         已在队列中
                       {:else}
                         下载整张专辑
@@ -2933,25 +1671,31 @@
                       </motion.button>
                       <motion.button
                         class="btn btn-primary"
-                        onclick={handleSelectionDownload}
-                        disabled={isSelectionDownloadActionDisabled()}
+                        onclick={() =>
+                          downloadController.handleSelectionDownload(selectedSongCids, {
+                            afterCreated: () => {
+                              clearSongSelection();
+                              selectionModeEnabled = false;
+                            },
+                          })}
+                        disabled={downloadController.isSelectionDownloadActionDisabled(selectedSongCids)}
                         animate={appButtonAnimate(
                           true,
-                          isSelectionDownloadActionDisabled(),
+                          downloadController.isSelectionDownloadActionDisabled(selectedSongCids),
                         )}
                         whileHover={appButtonHover(
                           true,
-                          isSelectionDownloadActionDisabled(),
+                          downloadController.isSelectionDownloadActionDisabled(selectedSongCids),
                         )}
                         whileTap={!prefersReducedMotion &&
-                        !isSelectionDownloadActionDisabled()
+                        !downloadController.isSelectionDownloadActionDisabled(selectedSongCids)
                           ? { y: 0, scale: 0.98, opacity: 0.94 }
                           : undefined}
                         transition={interactiveTransition}
                       >
-                        {#if isCurrentSelectionCreating()}
+                        {#if downloadController.isCurrentSelectionCreating(selectedSongCids)}
                           正在创建批量任务...
-                        {:else if getCurrentSelectionJob()}
+                        {:else if downloadController.getCurrentSelectionJob(selectedSongCids)}
                           已在队列中
                         {:else}
                           下载所选歌曲
@@ -2977,16 +1721,16 @@
                     index={i}
                     isPlaying={currentSong?.cid === song.cid &&
                       (isPlaying || isPaused)}
-                    downloadState={getSongDownloadState(song.cid)}
-                    downloadDisabled={isSongDownloadInteractionBlocked(
+                    downloadState={downloadController.getSongDownloadState(song.cid)}
+                    downloadDisabled={downloadController.isSongDownloadInteractionBlocked(
                       song.cid,
                     )}
                     selectionMode={selectionModeEnabled}
                     isSelected={isSongSelected(song.cid)}
-                    selectionDisabled={isCurrentSelectionCreating()}
+                    selectionDisabled={downloadController.isCurrentSelectionCreating(selectedSongCids)}
                     reducedMotion={prefersReducedMotion}
                     onclick={() => handlePlay(song)}
-                    onDownload={() => handleSongDownload(song)}
+                    onDownload={() => downloadController.handleSongDownload(song.cid)}
                     onToggleSelection={() => toggleSongSelection(song.cid)}
                   />
                 {/each}
@@ -3108,7 +1852,7 @@
                           type="button"
                           class={`player-playlist-item${entry.cid === currentSong?.cid ? " active" : ""}`}
                           onclick={() => {
-                            void playQueueEntry(entry, playbackOrder, index);
+                            void playerController.playQueueEntry(entry, playbackOrder, index);
                           }}
                         >
                           <span class="player-playlist-index"
@@ -3148,23 +1892,27 @@
               lyricsActive={lyricsOpen}
               playlistActive={playlistOpen}
               downloadState={currentSong
-                ? getSongDownloadState(currentSong.cid)
+                ? downloadController.getSongDownloadState(currentSong.cid)
                 : "idle"}
               downloadDisabled={currentSong
-                ? isSongDownloadInteractionBlocked(currentSong.cid)
+                ? downloadController.isSongDownloadInteractionBlocked(currentSong.cid)
                 : false}
               reducedMotion={prefersReducedMotion}
-              onPrevious={handlePlayPrevious}
+              onPrevious={playerController.playPrevious}
               onTogglePlay={isPlaying
-                ? handlePausePlayback
-                : handleResumePlayback}
-              onSeek={handleSeekPlayback}
-              onNext={handlePlayNext}
-              onShuffleChange={handleShuffleChange}
-              onRepeatModeChange={handleRepeatModeChange}
-              onToggleLyrics={toggleLyricsPanel}
-              onTogglePlaylist={togglePlaylistPanel}
-              onDownload={handleCurrentSongDownload}
+                ? playerController.pause
+                : playerController.resume}
+              onSeek={playerController.seek}
+              onNext={playerController.playNext}
+              onShuffleChange={playerController.toggleShuffle}
+              onRepeatModeChange={playerController.toggleRepeat}
+              onToggleLyrics={playerController.toggleLyrics}
+              onTogglePlaylist={playerController.togglePlaylist}
+              onDownload={() => {
+                if (currentSong) {
+                  return downloadController.handleSongDownload(currentSong.cid);
+                }
+              }}
             />
           </div>
         </motion.div>
@@ -3193,27 +1941,27 @@
       bind:open={downloadPanelOpen}
       jobs={filteredDownloadJobs}
       hasDownloadHistory={hasDownloadHistory}
-      bind:searchQuery={downloadSearchQuery}
-      bind:scopeFilter={downloadScopeFilter}
-      bind:statusFilter={downloadStatusFilter}
-      bind:kindFilter={downloadKindFilter}
-      {canClearDownloadHistory}
-      {getJobProgress}
-      {getJobProgressText}
-      {getJobStatusLabel}
-      {getJobKindLabel}
-      {getJobSummaryLabel}
-      {getJobErrorSummary}
-      {isJobActive}
-      {canCancelTask}
-      {canRetryTask}
-      {getTaskErrorLabel}
-      {getTaskStatusLabel}
-      onClearDownloadHistory={handleClearDownloadHistory}
-      onCancelDownloadJob={handleCancelDownloadJob}
-      onRetryDownloadJob={handleRetryDownloadJob}
-      onCancelDownloadTask={handleCancelDownloadTask}
-      onRetryDownloadTask={handleRetryDownloadTask}
+      bind:searchQuery={downloadController.searchQuery}
+      bind:scopeFilter={downloadController.scopeFilter}
+      bind:statusFilter={downloadController.statusFilter}
+      bind:kindFilter={downloadController.kindFilter}
+      canClearDownloadHistory={downloadController.canClearDownloadHistory}
+      getJobProgress={downloadController.getJobProgress}
+      getJobProgressText={downloadController.getJobProgressText}
+      getJobStatusLabel={downloadController.getJobStatusLabel}
+      getJobKindLabel={downloadController.getJobKindLabel}
+      getJobSummaryLabel={downloadController.getJobSummaryLabel}
+      getJobErrorSummary={downloadController.getJobErrorSummary}
+      isJobActive={downloadController.isJobActive}
+      canCancelTask={downloadController.canCancelTask}
+      canRetryTask={downloadController.canRetryTask}
+      getTaskErrorLabel={downloadController.getTaskErrorLabel}
+      getTaskStatusLabel={downloadController.getTaskStatusLabel}
+      onClearDownloadHistory={downloadController.handleClearDownloadHistory}
+      onCancelDownloadJob={downloadController.handleCancelDownloadJob}
+      onRetryDownloadJob={downloadController.handleRetryDownloadJob}
+      onCancelDownloadTask={downloadController.handleCancelDownloadTask}
+      onRetryDownloadTask={downloadController.handleRetryDownloadTask}
     />
   {/if}
 
