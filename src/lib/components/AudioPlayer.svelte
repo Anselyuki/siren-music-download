@@ -147,7 +147,6 @@
       } catch (error) {
         if (requestSeq !== coverRequestSeq) return;
         resolvedCoverUrl = null;
-        console.warn('[WARN] Failed to resolve player cover image:', error);
       }
     })();
   });
@@ -172,9 +171,8 @@
     }
     try {
       await onSeek?.(target);
-    } catch (error) {
+    } catch {
       seekPreview = null;
-      console.error('[ERROR] Failed to seek from player bar:', error);
     }
   }
 
@@ -192,8 +190,8 @@
     if (!canShuffle) return;
     try {
       await onShuffleChange?.(!isShuffled);
-    } catch (error) {
-      console.error('[ERROR] Failed to toggle shuffle mode:', error);
+    } catch {
+      return;
     }
   }
 
@@ -202,8 +200,8 @@
     const next = nextRepeatMode(repeatMode);
     try {
       await onRepeatModeChange?.(next);
-    } catch (error) {
-      console.error('[ERROR] Failed to switch repeat mode:', error);
+    } catch {
+      return;
     }
   }
 </script>

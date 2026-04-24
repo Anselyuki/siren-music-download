@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import * as Sheet from "$lib/components/ui/sheet/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Switch } from "$lib/components/ui/switch/index.js";
@@ -51,11 +50,13 @@
   let logFileStatus = $state<LogFileStatus | null>(null);
   let logViewerLoading = $state(false);
   let logViewerError = $state("");
+  let logRequestSeq = 0;
   let isSendingTestNotification = $state(false);
   let isClearingAudioCache = $state(false);
   let lastLoadedWhileOpen = $state(false);
 
   async function refreshLogs(kind = logFileKind) {
+    const requestSeq = ++logRequestSeq;
     logViewerLoading = true;
     logViewerError = "";
     try {
@@ -63,12 +64,21 @@
         listLogRecords({ kind, limit: 100 }),
         getLogFileStatus(),
       ]);
+      if (requestSeq !== logRequestSeq || !open) {
+        return;
+      }
       logRecords = page.records;
       logFileStatus = status;
       logFileKind = kind;
     } catch (error) {
+      if (requestSeq !== logRequestSeq || !open) {
+        return;
+      }
       logViewerError = error instanceof Error ? error.message : String(error);
     } finally {
+      if (requestSeq !== logRequestSeq) {
+        return;
+      }
       logViewerLoading = false;
     }
   }
@@ -99,7 +109,6 @@
           : "当前没有可清除的音频缓存",
       );
     } catch (error) {
-      console.error("[ERROR] Failed to clear audio cache:", error);
       notifyError(
         `清除音频缓存失败：${error instanceof Error ? error.message : String(error)}`,
       );
@@ -115,7 +124,6 @@
       await sendTestNotification();
       notifyInfo("测试通知已请求发送，请观察系统通知中心或终端日志。");
     } catch (error) {
-      console.error("[ERROR] Failed to send test notification:", error);
       notifyError(
         `发送测试通知失败：${error instanceof Error ? error.message : String(error)}`,
       );
@@ -127,6 +135,8 @@
   $effect(() => {
     if (!open) {
       lastLoadedWhileOpen = false;
+      logRequestSeq += 1;
+      logViewerLoading = false;
       return;
     }
 
@@ -147,11 +157,6 @@
     void refreshLogs(logFileKind);
   });
 
-  onMount(() => {
-    return () => {
-      lastLoadedWhileOpen = false;
-    };
-  });
 </script>
 
 <Sheet.Root bind:open>
