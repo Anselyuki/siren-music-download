@@ -33,7 +33,7 @@ if (!root) {
   process.exit(0);
 }
 
-const script = resolve(scriptDirectory, 'rust-fmt-pre-commit.mjs');
+const script = resolve(scriptDirectory, 'format-apply-pre-commit.mjs');
 const result = spawnSync(process.execPath, [script], {
   cwd: root,
   encoding: 'utf8',

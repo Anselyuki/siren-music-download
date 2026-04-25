@@ -112,7 +112,7 @@ cargo doc -p siren-music-download --bin siren-music-download --no-deps --documen
 
 ## 开发指南
 
-- [Claude Code Hook 开发指引](./doc/guides/claude-code-hook-setup.md)
+- [Claude Code Hook 安装与启用说明](./doc/guides/claude-code-hook-setup.md)
 - [前端开发指南](./doc/guides/frontend-guide.md)
 - [后端 API 契约](./doc/reference/backend-api-contract.md)
 - [Release 流程](./doc/process/release-process.md)
