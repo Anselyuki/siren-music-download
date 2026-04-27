@@ -3,6 +3,21 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// 应用支持的界面语言
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Locale {
+    #[serde(rename = "zh-CN")]
+    ZhCN,
+    #[serde(rename = "en-US")]
+    EnUS,
+}
+
+impl Default for Locale {
+    fn default() -> Self {
+        Self::ZhCN
+    }
+}
+
 /// 统一应用偏好模型（TOML 序列化格式：camelCase 字段名）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +32,8 @@ pub struct AppPreferences {
     pub(crate) notify_on_playback_change: bool,
     #[serde(default = "default_log_level")]
     pub(crate) log_level: String,
+    #[serde(default)]
+    pub(crate) locale: Locale,
 }
 
 impl AppPreferences {
@@ -95,6 +112,7 @@ impl Default for AppPreferences {
             notify_on_download_complete: true,
             notify_on_playback_change: true,
             log_level: default_log_level(),
+            locale: Locale::default(),
         }
     }
 }
@@ -189,6 +207,7 @@ impl PreferencesStore {
             notify_on_download_complete: true,
             notify_on_playback_change: true,
             log_level: default_log_level(),
+            locale: Locale::default(),
         };
         if let Err(e) = self.save(&default_prefs) {
             if let Some(log_center) = log_center {

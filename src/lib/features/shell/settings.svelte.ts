@@ -1,9 +1,11 @@
+import type { Locale } from '$lib/i18n/types';
 import type { AppPreferences, LogLevel, OutputFormat } from '$lib/types';
 
 interface SettingsControllerDeps {
   getPreferences: () => Promise<AppPreferences>;
   setPreferences: (preferences: AppPreferences) => Promise<AppPreferences>;
   notifyError: (message: string) => void;
+  onLocaleChanged?: (locale: Locale) => void;
 }
 
 interface HydrateSettingsOptions {
@@ -17,6 +19,7 @@ export interface SettingsState {
   notifyOnDownloadComplete: boolean;
   notifyOnPlaybackChange: boolean;
   logLevel: LogLevel;
+  locale: Locale;
   settingsLogRefreshToken: number;
   prefsReady: boolean;
   isSaving: boolean;
@@ -29,6 +32,7 @@ export interface SettingsState {
     notifyOnDownloadComplete: boolean;
     notifyOnPlaybackChange: boolean;
     logLevel: boolean;
+    locale: boolean;
   };
   suspendDirtyTracking: number;
 }
@@ -50,6 +54,7 @@ export function createSettingsController(deps: SettingsControllerDeps) {
       notifyOnDownloadComplete: state.notifyOnDownloadComplete,
       notifyOnPlaybackChange: state.notifyOnPlaybackChange,
       logLevel: state.logLevel,
+      locale: state.locale,
     });
   }
 
@@ -61,6 +66,7 @@ export function createSettingsController(deps: SettingsControllerDeps) {
       notifyOnDownloadComplete: preferences.notifyOnDownloadComplete,
       notifyOnPlaybackChange: preferences.notifyOnPlaybackChange,
       logLevel: preferences.logLevel,
+      locale: preferences.locale,
     });
   }
 
@@ -92,6 +98,10 @@ export function createSettingsController(deps: SettingsControllerDeps) {
       if (!state.dirty.logLevel) {
         state.logLevel = prefs.logLevel;
       }
+      if (!state.dirty.locale) {
+        state.locale = prefs.locale;
+      }
+      deps.onLocaleChanged?.(prefs.locale);
       state.persistedSnapshot = getPreferencesSnapshot(prefs);
       state.lastSaveFailedSnapshot = '';
       state.prefsReady = true;
@@ -137,6 +147,7 @@ export function createSettingsController(deps: SettingsControllerDeps) {
       notifyOnDownloadComplete: state.notifyOnDownloadComplete,
       notifyOnPlaybackChange: state.notifyOnPlaybackChange,
       logLevel: state.logLevel,
+      locale: state.locale,
     };
 
     state.isSaving = true;
@@ -151,16 +162,19 @@ export function createSettingsController(deps: SettingsControllerDeps) {
           state.notifyOnDownloadComplete = updated.notifyOnDownloadComplete;
           state.notifyOnPlaybackChange = updated.notifyOnPlaybackChange;
           state.logLevel = updated.logLevel;
+          state.locale = updated.locale;
           state.persistedSnapshot = getSnapshot(state);
         } else {
           state.persistedSnapshot = requestSnapshot;
         }
+        deps.onLocaleChanged?.(updated.locale);
         state.dirty.format = false;
         state.dirty.outputDir = false;
         state.dirty.downloadLyrics = false;
         state.dirty.notifyOnDownloadComplete = false;
         state.dirty.notifyOnPlaybackChange = false;
         state.dirty.logLevel = false;
+        state.dirty.locale = false;
         state.lastSaveFailedSnapshot = '';
         return true;
       } catch (error) {

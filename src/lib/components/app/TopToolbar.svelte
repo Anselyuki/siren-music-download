@@ -1,4 +1,6 @@
 <script lang="ts">
+  import * as m from '$lib/paraglide/messages.js';
+  import { localeState } from '$lib/i18n';
   import { Button } from '$lib/components/ui/button/index.js';
   import { toolbarIconButton } from '$lib/design/variants';
 
@@ -21,6 +23,15 @@
     onOpenDownloads,
     onOpenSettings,
   }: Props = $props();
+
+  const labels = $derived.by(() => {
+    void localeState.current;
+    return {
+      refresh: m.shell_toolbar_refresh(),
+      downloads: m.shell_toolbar_downloads(),
+      settings: m.shell_toolbar_settings(),
+    };
+  });
 </script>
 
 <div class="top-actions">
@@ -33,8 +44,8 @@
       class={toolbarIconButton({ active: false })}
       onclick={onRefresh}
       disabled={isRefreshing}
-      aria-label="刷新缓存"
-      title="刷新缓存"
+      aria-label={labels.refresh}
+      title={labels.refresh}
     >
       ↻
     </Button>
@@ -44,9 +55,9 @@
       variant="ghost"
       class={`relative ${toolbarIconButton({ active: downloadPanelOpen })}`}
       onclick={onOpenDownloads}
-      aria-label="下载任务"
+      aria-label={labels.downloads}
       aria-pressed={downloadPanelOpen}
-      title="下载任务"
+      title={labels.downloads}
     >
       ↓
       {#if activeDownloadCount > 0}
@@ -59,9 +70,9 @@
       variant="ghost"
       class={toolbarIconButton({ active: settingsOpen })}
       onclick={onOpenSettings}
-      aria-label="下载设置"
+      aria-label={labels.settings}
       aria-pressed={settingsOpen}
-      title="下载设置"
+      title={labels.settings}
     >
       ⚙
     </Button>

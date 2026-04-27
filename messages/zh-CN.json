@@ -1,0 +1,11 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "shell_toolbar_refresh": "刷新缓存",
+  "shell_toolbar_downloads": "下载任务",
+  "shell_toolbar_settings": "下载设置",
+  "library_workspace_select_album": "选择专辑",
+  "library_workspace_select_album_hint": "从左侧选择一个专辑以查看歌曲",
+  "settings_language_label": "界面语言",
+  "settings_language_zh_cn": "简体中文",
+  "settings_language_en_us": "English"
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type SettingsSheet from '$lib/components/app/SettingsSheet.svelte';
   import type DownloadTasksSheet from '$lib/components/app/DownloadTasksSheet.svelte';
+  import type { Locale } from '$lib/i18n/types';
   import type {
     DownloadHistoryKindFilter,
     DownloadHistoryScopeFilter,
@@ -25,6 +26,7 @@
     notifyOnDownloadComplete?: boolean;
     notifyOnPlaybackChange?: boolean;
     logLevel?: LogLevel;
+    locale?: Locale;
     settingsLogRefreshToken: number;
     notifyInfo: (message: string) => void;
     notifyError: (message: string) => void;
@@ -71,6 +73,7 @@
     notifyOnDownloadComplete = $bindable(true),
     notifyOnPlaybackChange = $bindable(true),
     logLevel = $bindable<LogLevel>('error'),
+    locale = $bindable<Locale>('zh-CN'),
     settingsLogRefreshToken,
     notifyInfo,
     notifyError,
@@ -110,6 +113,7 @@
     bind:notifyOnDownloadComplete
     bind:notifyOnPlaybackChange
     bind:logLevel
+    bind:locale
     logRefreshToken={settingsLogRefreshToken}
     {notifyInfo}
     {notifyError}

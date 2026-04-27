@@ -77,6 +77,7 @@ export default [
       '.svelte-kit/**',
       'build/**',
       '.claude/**',
+      'src/lib/paraglide/**',
     ],
   },
   {

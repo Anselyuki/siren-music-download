@@ -61,6 +61,7 @@
     buildAlbumPlaybackEntries,
     getSelectedAlbumCoverUrl,
   } from '$lib/features/library/selectors';
+  import { localeState, type Locale } from '$lib/i18n';
   import { toast } from 'svelte-sonner';
   import TopToolbar from '$lib/components/app/TopToolbar.svelte';
   import StatusToastHost from '$lib/components/app/StatusToastHost.svelte';
@@ -134,6 +135,7 @@
     getPreferences,
     setPreferences,
     notifyError,
+    onLocaleChanged: (locale) => localeState.applyBackendLocale(locale),
   });
 
   const albumStageMotionController = createAlbumStageMotionController({
@@ -216,6 +218,7 @@
     notifyOnDownloadComplete: true,
     notifyOnPlaybackChange: true,
     logLevel: 'error' as LogLevel,
+    locale: 'zh-CN' as Locale,
     settingsLogRefreshToken: 0,
     prefsReady: false,
     isSaving: false,
@@ -228,6 +231,7 @@
       notifyOnDownloadComplete: false,
       notifyOnPlaybackChange: false,
       logLevel: false,
+      locale: false,
     },
     suspendDirtyTracking: 0,
   });
@@ -240,6 +244,7 @@
     notifyOnDownloadComplete: settingsState.notifyOnDownloadComplete,
     notifyOnPlaybackChange: settingsState.notifyOnPlaybackChange,
     logLevel: settingsState.logLevel,
+    locale: settingsState.locale,
   };
 
   const playerHasPrevious = $derived(playerController.playerHasPrevious);
@@ -384,6 +389,7 @@
       notifyOnDownloadComplete: settingsState.notifyOnDownloadComplete,
       notifyOnPlaybackChange: settingsState.notifyOnPlaybackChange,
       logLevel: settingsState.logLevel,
+      locale: settingsState.locale,
     });
   }
 
@@ -456,6 +462,18 @@
     if (value !== lastObservedSettings.logLevel) {
       settingsState.dirty.logLevel = true;
       lastObservedSettings.logLevel = value;
+    }
+  });
+
+  $effect(() => {
+    const value = settingsState.locale;
+    if (settingsState.suspendDirtyTracking > 0) {
+      lastObservedSettings.locale = value;
+      return;
+    }
+    if (value !== lastObservedSettings.locale) {
+      settingsState.dirty.locale = true;
+      lastObservedSettings.locale = value;
     }
   });
 
@@ -1037,6 +1055,7 @@
       bind:notifyOnDownloadComplete={settingsState.notifyOnDownloadComplete}
       bind:notifyOnPlaybackChange={settingsState.notifyOnPlaybackChange}
       bind:logLevel={settingsState.logLevel}
+      bind:locale={settingsState.locale}
       settingsLogRefreshToken={settingsState.settingsLogRefreshToken}
       {notifyInfo}
       {notifyError}

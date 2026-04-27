@@ -1,3 +1,5 @@
+import type { Locale } from './i18n/types';
+
 export type LocalTrackDownloadStatus =
   | 'missing'
   | 'detected'
@@ -273,6 +275,7 @@ export interface AppPreferences {
   notifyOnDownloadComplete: boolean;
   notifyOnPlaybackChange: boolean;
   logLevel: LogLevel;
+  locale: Locale;
 }
 
 export type AppErrorLevel = 'warn' | 'error';

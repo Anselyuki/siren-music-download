@@ -9,6 +9,9 @@
     selectDirectory,
     sendTestNotification,
   } from '$lib/settingsApi';
+  import type { Locale } from '$lib/i18n/types';
+  import * as m from '$lib/paraglide/messages.js';
+  import { localeState } from '$lib/i18n';
   import type {
     LogFileKind,
     LogFileStatus,
@@ -25,6 +28,7 @@
     notifyOnDownloadComplete?: boolean;
     notifyOnPlaybackChange?: boolean;
     logLevel?: LogLevel;
+    locale?: Locale;
     logRefreshToken?: number;
     notifyInfo: (message: string) => void;
     notifyError: (message: string) => void;
@@ -39,6 +43,7 @@
     notifyOnDownloadComplete = $bindable(true),
     notifyOnPlaybackChange = $bindable(true),
     logLevel = $bindable<LogLevel>('error'),
+    locale = $bindable<Locale>('zh-CN'),
     logRefreshToken = 0,
     notifyInfo,
     notifyError,
@@ -155,6 +160,15 @@
 
     void refreshLogs(logFileKind);
   });
+
+  const localeLabels = $derived.by(() => {
+    void localeState.current;
+    return {
+      languageLabel: m.settings_language_label(),
+      zhCN: m.settings_language_zh_cn(),
+      enUS: m.settings_language_en_us(),
+    };
+  });
 </script>
 
 <Sheet.Root bind:open>
@@ -167,6 +181,20 @@
     </Sheet.Header>
 
     <div class="space-y-6 py-2">
+      <div class="space-y-2">
+        <label class="text-sm text-[var(--text-secondary)]" for="locale-select"
+          >{localeLabels.languageLabel}</label
+        >
+        <select
+          id="locale-select"
+          class="w-full rounded-2xl border border-white/50 bg-white/[0.40] px-3 py-2 text-sm outline-none"
+          bind:value={locale}
+        >
+          <option value="zh-CN">{localeLabels.zhCN}</option>
+          <option value="en-US">{localeLabels.enUS}</option>
+        </select>
+      </div>
+
       <div class="space-y-2">
         <label class="text-sm text-[var(--text-secondary)]" for="format-select"
           >输出格式</label

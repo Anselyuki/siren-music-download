@@ -1,4 +1,6 @@
 <script lang="ts">
+  import * as m from '$lib/paraglide/messages.js';
+  import { localeState } from '$lib/i18n';
   import { AnimatePresence, motion } from '@humanspeak/svelte-motion';
   import type { MotionTransition } from '@humanspeak/svelte-motion';
   import { OverlayScrollbarsComponent } from 'overlayscrollbars-svelte';
@@ -110,6 +112,14 @@
   function fadeExit(opacity = 0): MotionTarget {
     return { opacity };
   }
+
+  const emptyLabels = $derived.by(() => {
+    void localeState.current;
+    return {
+      title: m.library_workspace_select_album(),
+      hint: m.library_workspace_select_album_hint(),
+    };
+  });
 </script>
 
 <OverlayScrollbarsComponent
@@ -193,8 +203,8 @@
   </AnimatePresence>
 
   {#if !loadingDetail && !selectedAlbum}
-    <h1 class="page-title">选择专辑</h1>
-    <p class="page-subtitle">从左侧选择一个专辑以查看歌曲</p>
+    <h1 class="page-title">{emptyLabels.title}</h1>
+    <p class="page-subtitle">{emptyLabels.hint}</p>
   {/if}
 
   <AnimatePresence>
