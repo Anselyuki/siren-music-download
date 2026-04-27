@@ -3,7 +3,7 @@ import type { AlbumDetail, PlaybackQueueEntry } from '$lib/types';
 export function getSelectedAlbumCoverUrl(
   album: AlbumDetail | null
 ): string | null {
-  return album?.coverDeUrl ?? album?.coverUrl ?? null;
+  return album?.coverUrl ?? null;
 }
 
 export function buildAlbumPlaybackEntries(
@@ -11,7 +11,7 @@ export function buildAlbumPlaybackEntries(
 ): PlaybackQueueEntry[] {
   if (!album) return [];
 
-  const coverUrl = album.coverDeUrl ?? album.coverUrl;
+  const coverUrl = album.coverUrl;
   return album.songs.map((entry) => ({
     cid: entry.cid,
     name: entry.name,

@@ -237,6 +237,8 @@
   });
   let selectedAlbumArtworkUrl = $state<string | null>(null);
   let albumStageElement = $state<HTMLElement | null>(null);
+  let activeThemeArtworkUrl: string | null = null;
+  let activeAlbumStageArtworkUrl: string | null = null;
   const lastObservedSettings = {
     format: settingsState.format,
     outputDir: settingsState.outputDir,
@@ -251,6 +253,8 @@
   const playerHasNext = $derived(playerController.playerHasNext);
 
   const activeLyricIndex = $derived.by(() => {
+    if (!lyricsOpen) return -1;
+
     let activeIndex = -1;
 
     for (let index = 0; index < lyricsLines.length; index += 1) {
@@ -338,9 +342,14 @@
   }
 
   $effect(() => {
-    const paletteRequestSeq = ++themeRequestSeq;
     const artworkUrl =
       selectedAlbum?.coverUrl ?? selectedAlbum?.coverDeUrl ?? null;
+    if (artworkUrl === activeThemeArtworkUrl) {
+      return;
+    }
+
+    activeThemeArtworkUrl = artworkUrl;
+    const paletteRequestSeq = ++themeRequestSeq;
 
     if (!artworkUrl) {
       applyThemePalette(DEFAULT_THEME_PALETTE);
@@ -362,6 +371,11 @@
   $effect(() => {
     const sourceUrl =
       selectedAlbum?.coverDeUrl ?? selectedAlbum?.coverUrl ?? null;
+    if (sourceUrl === activeAlbumStageArtworkUrl) {
+      return;
+    }
+
+    activeAlbumStageArtworkUrl = sourceUrl;
     const requestSeq = ++artworkRequestSeq;
 
     if (!sourceUrl) {
@@ -812,6 +826,17 @@
     });
   }
 
+  async function handleSelectAlbum(album: Album) {
+    clearSongSelection();
+    selectionModeEnabled = false;
+    await libraryController.selectAlbum(album, {
+      afterSelect: async () => {
+        await tick();
+        resetContentScroll();
+      },
+    });
+  }
+
   function handleContentWheel(event: WheelEvent) {
     albumStageMotionController.handleContentWheel(event);
   }
@@ -914,16 +939,7 @@
     {overlayScrollbarOptions}
     onSearchQueryChange={libraryController.setSearchQuery}
     onSearchScopeChange={libraryController.setSearchScope}
-    onSelect={(album: Album) => {
-      clearSongSelection();
-      selectionModeEnabled = false;
-      return libraryController.selectAlbum(album, {
-        afterSelect: async () => {
-          await tick();
-          resetContentScroll();
-        },
-      });
-    }}
+    onSelect={handleSelectAlbum}
     onSelectSearchResult={handleSelectSearchResult}
   />
 

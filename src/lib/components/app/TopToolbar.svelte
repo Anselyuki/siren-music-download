@@ -39,9 +39,9 @@
     class="flex items-center gap-2 rounded-full border border-white/50 bg-white/[0.62] p-2 shadow-[0_16px_36px_rgba(15,23,42,0.12)] backdrop-blur-xl"
   >
     <Button
-      size="icon-sm"
+      size="icon"
       variant="ghost"
-      class={toolbarIconButton({ active: false })}
+      class={`text-base ${toolbarIconButton({ active: false })}`}
       onclick={onRefresh}
       disabled={isRefreshing}
       aria-label={labels.refresh}
@@ -51,9 +51,9 @@
     </Button>
 
     <Button
-      size="icon-sm"
+      size="icon"
       variant="ghost"
-      class={`relative ${toolbarIconButton({ active: downloadPanelOpen })}`}
+      class={`relative text-base ${toolbarIconButton({ active: downloadPanelOpen })}`}
       onclick={onOpenDownloads}
       aria-label={labels.downloads}
       aria-pressed={downloadPanelOpen}
@@ -66,9 +66,9 @@
     </Button>
 
     <Button
-      size="icon-sm"
+      size="icon"
       variant="ghost"
-      class={toolbarIconButton({ active: settingsOpen })}
+      class={`text-base ${toolbarIconButton({ active: settingsOpen })}`}
       onclick={onOpenSettings}
       aria-label={labels.settings}
       aria-pressed={settingsOpen}

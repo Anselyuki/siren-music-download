@@ -192,10 +192,11 @@ impl AudioPlayer {
         previous
     }
 
-    /// 初始化新的加载会话并重置当前播放状态。
+    /// 初始化新的加载会话并替换当前播放状态。
     ///
-    /// 该方法会先停止已有会话，再写入歌曲元数据、初始进度、初始时长与当前音量，
-    /// 并返回新的会话 ID 供后续流式播放阶段校验。
+    /// 该方法会先停止已有音频输出，但不会广播一个短暂的空播放器状态；随后写入
+    /// 歌曲元数据、初始进度、初始时长与当前音量，并返回新的会话 ID 供后续流式
+    /// 播放阶段校验。
     pub fn begin_loading_session(
         &self,
         song_cid: String,
@@ -205,7 +206,7 @@ impl AudioPlayer {
         initial_progress: f64,
         initial_duration: Option<f64>,
     ) -> Result<u64> {
-        self.stop()?;
+        self.stop_active_backend()?;
 
         let session_id = self.active_session_id.fetch_add(1, Ordering::SeqCst) + 1;
         self.stop_flag.store(false, Ordering::SeqCst);
@@ -266,12 +267,25 @@ impl AudioPlayer {
             initial_progress.max(0.0)
         };
 
-        {
+        let did_update_timing = {
             let mut state = self.state.lock().unwrap();
-            state.progress = initial_progress;
-            state.duration = format.duration_secs.max(initial_progress);
+            let next_duration = format.duration_secs.max(initial_progress);
+            let mut did_update = false;
+
+            if (state.progress - initial_progress).abs() > 0.001 {
+                state.progress = initial_progress;
+                did_update = true;
+            }
+            if (state.duration - next_duration).abs() > 0.001 {
+                state.duration = next_duration;
+                did_update = true;
+            }
+
+            did_update
+        };
+        if did_update_timing {
+            emit_progress_and_sync(&self.app, &self.state, &self.media_session);
         }
-        emit_state_and_sync(&self.app, &self.state, &self.media_session);
 
         let progress_callback = self.build_progress_callback(session_id, initial_progress);
         let finish_callback = self.build_finish_callback(session_id);
@@ -510,10 +524,7 @@ impl AudioPlayer {
     ///
     /// 该方法会推进会话 ID，使旧回调与后台线程自动失效。
     pub fn stop(&self) -> Result<()> {
-        self.stop_flag.store(true, Ordering::SeqCst);
-        self.pause_flag.store(false, Ordering::SeqCst);
-        self.active_session_id.fetch_add(1, Ordering::SeqCst);
-        self.backend.lock().unwrap().stop()?;
+        self.stop_active_backend()?;
 
         {
             let mut state = self.state.lock().unwrap();
@@ -522,6 +533,13 @@ impl AudioPlayer {
         }
         emit_state_and_sync(&self.app, &self.state, &self.media_session);
         Ok(())
+    }
+
+    fn stop_active_backend(&self) -> Result<()> {
+        self.stop_flag.store(true, Ordering::SeqCst);
+        self.pause_flag.store(false, Ordering::SeqCst);
+        self.active_session_id.fetch_add(1, Ordering::SeqCst);
+        self.backend.lock().unwrap().stop()
     }
 
     /// 返回当前播放器状态快照。

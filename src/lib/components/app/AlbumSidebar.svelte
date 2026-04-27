@@ -1,6 +1,7 @@
 <script lang="ts">
-  import * as Select from '$lib/components/ui/select/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import SearchIcon from '@lucide/svelte/icons/search';
   import AlbumCard from '$lib/components/AlbumCard.svelte';
   import MotionSpinner from '$lib/components/MotionSpinner.svelte';
   import type {
@@ -28,7 +29,7 @@
   }
 
   const scopeOptions: { value: LibrarySearchScope; label: string }[] = [
-    { value: 'all', label: '全部' },
+    { value: 'all', label: 'ALL' },
     { value: 'albums', label: '专辑' },
     { value: 'songs', label: '歌曲' },
   ];
@@ -69,39 +70,46 @@
         return '';
     }
   });
+  const activeScopeLabel = $derived.by(
+    () =>
+      scopeOptions.find((option) => option.value === searchScope)?.label ??
+      'ALL'
+  );
+
+  function cycleSearchScope() {
+    const currentIndex = scopeOptions.findIndex(
+      (option) => option.value === searchScope
+    );
+    const nextIndex = (currentIndex + 1) % scopeOptions.length;
+    onSearchScopeChange(scopeOptions[nextIndex]?.value ?? 'all');
+  }
 </script>
 
 <div class="h-full">
-  <h2 class="section-title">专辑</h2>
-  <div class="mb-3 grid gap-2">
+  <div class="search-control-row">
+    <SearchIcon class="library-search-icon" aria-hidden="true" />
     <Input
       value={searchQuery}
-      placeholder="搜索专辑 / 歌曲 / 艺术家"
+      placeholder=""
       aria-label="搜索专辑、歌曲或艺术家"
-      class="border-white/35 bg-white/20"
+      class="library-search-input"
       oninput={(event) => {
         const target = event.currentTarget as HTMLInputElement;
         onSearchQueryChange(target.value);
       }}
     />
-
-    <Select.Root
-      type="single"
-      value={searchScope}
-      onValueChange={(value) =>
-        onSearchScopeChange(value as LibrarySearchScope)}
+    <Button
+      variant="outline"
+      size="icon"
+      class="library-search-scope-button"
+      aria-label={`搜索范围：${activeScopeLabel}，点击切换`}
+      title={`搜索范围：${activeScopeLabel}`}
+      onclick={cycleSearchScope}
     >
-      <Select.Trigger class="w-full border-white/35 bg-white/20">
-        {scopeOptions.find((option) => option.value === searchScope)?.label ??
-          '全部'}
-      </Select.Trigger>
-      <Select.Content>
-        {#each scopeOptions as option (option.value)}
-          <Select.Item value={option.value} label={option.label} />
-        {/each}
-      </Select.Content>
-    </Select.Root>
+      {activeScopeLabel}
+    </Button>
   </div>
+  <div class="library-search-divider" aria-hidden="true"></div>
 
   {#if loadingAlbums}
     <div class="loading">
@@ -185,6 +193,95 @@
 </div>
 
 <style>
+  .search-control-row {
+    position: relative;
+  }
+
+  .library-search-divider {
+    height: 1px;
+    margin: 14px 4px 16px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(var(--accent-rgb), 0.34) 18%,
+      rgba(var(--accent-rgb), 0.52) 50%,
+      rgba(var(--accent-rgb), 0.34) 82%,
+      transparent
+    );
+  }
+
+  :global(.library-search-input) {
+    height: 40px;
+    padding-left: 34px;
+    padding-right: 46px;
+    border: 1px solid rgba(255, 255, 255, 0.48);
+    border-radius: 12px;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.36),
+        rgba(255, 255, 255, 0.2)
+      ),
+      rgba(255, 255, 255, 0.18);
+    color: var(--text-primary);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.52),
+      0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  :global(.library-search-icon) {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    z-index: 1;
+    width: 16px;
+    height: 16px;
+    color: var(--text-tertiary);
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  :global(.library-search-input:focus-visible) {
+    border-color: rgba(var(--accent-rgb), 0.36);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.56),
+      0 0 0 3px rgba(var(--accent-rgb), 0.14),
+      0 10px 20px rgba(15, 23, 42, 0.1);
+  }
+
+  :global(.library-search-scope-button) {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 72%, white 28%);
+    border-radius: 8px;
+    background: var(--accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 5px 12px rgba(var(--accent-rgb), 0.24);
+    color: var(--accent-readable-foreground);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  :global(.library-search-scope-button:hover) {
+    border-color: color-mix(in srgb, var(--accent-hover) 78%, white 22%);
+    background: var(--accent-hover);
+    color: var(--accent-hover-readable-foreground);
+  }
+
+  :global(.library-search-scope-button:active) {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 1px 2px rgba(15, 23, 42, 0.08),
+      0 2px 6px rgba(15, 23, 42, 0.06);
+  }
+
   .search-status-card {
     display: grid;
     gap: 10px;
@@ -253,15 +350,22 @@
     border: 1px solid rgba(255, 255, 255, 0.28);
     background: rgba(255, 255, 255, 0.22);
     text-align: left;
+  }
+
+  .search-result:not(.is-selected) {
     transition:
       background-color 0.16s ease,
       border-color 0.16s ease;
   }
 
-  .search-result:hover,
+  .search-result:hover:not(.is-selected),
   .search-result.is-selected {
     background: rgba(var(--accent-rgb), 0.1);
     border-color: rgba(var(--accent-rgb), 0.22);
+  }
+
+  .search-result.is-selected {
+    transition: none;
   }
 
   .search-result-kind {

@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
-  import { motionStyles } from '$lib/actions/motionStyles';
   import type { Album } from '$lib/types';
   import { lazyLoad } from '$lib/lazyLoad';
   import {
@@ -22,18 +20,6 @@
     onclick,
   }: Props = $props();
 
-  let isHovered = $state(false);
-  let isFocused = $state(false);
-
-  const motionTransition = $derived.by(
-    () =>
-      ({
-        duration: reducedMotion ? 0 : 0.16,
-        ease: 'easeOut',
-      }) as const
-  );
-
-  const showCoverLift = $derived.by(() => isHovered || isFocused);
   const showDownloadBadge = $derived.by(() =>
     shouldShowAlbumListDownloadBadge(album.download.downloadStatus)
   );
@@ -46,68 +32,14 @@
   }
 </script>
 
-<motion.button
+<button
   type="button"
-  class={`album-card${selected ? ' selected' : ''}`}
-  role="button"
-  tabindex="0"
-  animate={selected
-    ? {
-        backgroundColor: 'var(--accent-light)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0.12)',
-        y: 0,
-      }
-    : {
-        backgroundColor: 'rgba(255, 255, 255, 0)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0)',
-        y: 0,
-      }}
-  whileHover={selected
-    ? reducedMotion
-      ? {}
-      : { y: -1 }
-    : {
-        backgroundColor: 'var(--hover-bg-elevated)',
-        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
-        ...(reducedMotion ? {} : { y: -1 }),
-      }}
-  whileFocus={selected
-    ? reducedMotion
-      ? {}
-      : { y: -1 }
-    : {
-        backgroundColor: 'var(--hover-bg-elevated)',
-        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
-        ...(reducedMotion ? {} : { y: -1 }),
-      }}
-  whileTap={reducedMotion ? undefined : { scale: 0.99, y: 0 }}
-  transition={motionTransition}
+  class={`album-card${selected ? ' selected' : ''}${reducedMotion ? ' is-reduced-motion' : ''}`}
   onclick={handleActivate}
-  onmouseenter={() => {
-    isHovered = true;
-  }}
-  onmouseleave={() => {
-    isHovered = false;
-  }}
-  onfocusin={() => {
-    isFocused = true;
-  }}
-  onfocusout={() => {
-    isFocused = false;
-  }}
 >
   <div
     class="album-cover-wrapper"
     use:lazyLoad={{ rootMargin: '150px', reducedMotion }}
-    use:motionStyles={{
-      animate: {
-        boxShadow: showCoverLift
-          ? '0 8px 18px rgba(var(--accent-rgb), 0.16)'
-          : '0 0 0 rgba(var(--accent-rgb), 0)',
-      },
-      transition: motionTransition,
-      reducedMotion,
-    }}
     data-src={album.coverUrl}
   >
     <div class="album-cover-placeholder">♪</div>
@@ -120,7 +52,7 @@
       <span class="album-download-badge">{downloadBadgeLabel}</span>
     {/if}
   </div>
-</motion.button>
+</button>
 
 <style>
   :global(.album-card) {
@@ -139,12 +71,53 @@
     text-align: left;
     color: inherit;
     box-shadow: inset 0 0 0 1px transparent;
+    transform: translateY(0) scale(1);
+    transition: transform 0.16s ease;
   }
 
-  :global(.album-card:focus-visible) {
+  :global(.album-card:not(.selected)) {
+    transition:
+      background-color 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
+  }
+
+  :global(.album-card:hover:not(.selected)),
+  :global(.album-card:focus-visible:not(.selected)) {
+    background: var(--hover-bg-elevated);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  }
+
+  :global(.album-card:hover:not(.selected):not(.is-reduced-motion)),
+  :global(.album-card:focus-visible:not(.selected):not(.is-reduced-motion)) {
+    transform: translateY(-1px);
+  }
+
+  :global(.album-card:active:not(.selected):not(.is-reduced-motion)) {
+    transform: translateY(0) scale(0.99);
+  }
+
+  :global(.album-card.selected) {
+    background: rgba(var(--accent-rgb), 0.1);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.12);
+    transform: translateY(0) scale(1);
+    transition: none;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(.album-card.selected) {
+      background: rgba(var(--accent-rgb), 0.18);
+    }
+  }
+
+  :global(.album-card:focus-visible:not(.selected)) {
     box-shadow:
       inset 0 0 0 1px rgba(var(--accent-rgb), 0.18),
       0 0 0 4px rgba(var(--accent-rgb), 0.08);
+  }
+
+  :global(.album-card.selected:focus-visible) {
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.12);
   }
 
   :global(.album-card.selected) .album-name {
@@ -167,6 +140,21 @@
     position: relative;
     overflow: hidden;
     box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
+    transition: box-shadow 0.16s ease;
+  }
+
+  :global(.album-card:hover:not(.selected)) .album-cover-wrapper,
+  :global(.album-card:focus-visible:not(.selected)) .album-cover-wrapper {
+    box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.16);
+  }
+
+  :global(.album-card.selected) .album-cover-wrapper {
+    box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
+    transition: none;
+  }
+
+  :global(.album-card.is-reduced-motion) .album-cover-wrapper {
+    transition: none;
   }
 
   .album-cover-placeholder {
