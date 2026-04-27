@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
   import type { SongEntry } from '$lib/types';
   import {
     getDownloadBadgeLabel,
@@ -81,63 +80,6 @@
         return '下载';
     }
   });
-  const rowSurface = $derived.by(() => {
-    if (isSelected) {
-      return {
-        backgroundColor: 'rgba(var(--accent-rgb), 0.12)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0.12)',
-      };
-    }
-
-    if (isPlaying) {
-      return {
-        backgroundColor: 'rgba(var(--accent-rgb), 0.1)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0.08)',
-      };
-    }
-
-    if (isHovered || isFocused) {
-      return {
-        backgroundColor: 'rgba(15, 23, 42, 0.04)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0)',
-      };
-    }
-
-    return {
-      backgroundColor: 'rgba(15, 23, 42, 0)',
-      boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb), 0)',
-    };
-  });
-
-  const indicatorState = $derived.by(() => {
-    if (isPlaying) {
-      return {
-        opacity: 1,
-        scale: 1,
-        backgroundColor: 'var(--accent)',
-        color: '#ffffff',
-        boxShadow: '0 10px 20px rgba(var(--accent-rgb), 0.18)',
-      };
-    }
-
-    return {
-      opacity: showPlayIndicator ? 1 : 0,
-      scale: reducedMotion ? 1 : showPlayIndicator ? 1 : 0.92,
-      backgroundColor: showPlayIndicator
-        ? 'rgba(var(--accent-rgb), 0.1)'
-        : 'rgba(15, 23, 42, 0.05)',
-      color: showPlayIndicator ? 'var(--accent)' : 'var(--text-secondary)',
-      boxShadow: '0 0 0 rgba(var(--accent-rgb), 0)',
-    };
-  });
-
-  const motionTransition = $derived.by(
-    () =>
-      ({
-        duration: reducedMotion ? 0 : 0.16,
-        ease: 'easeOut',
-      }) as const
-  );
 
   function handleRowActivate() {
     if (selectionMode) {
@@ -151,14 +93,16 @@
   }
 </script>
 
-<motion.div
-  class={`song-row${selectionMode ? ' is-selection-mode' : ''}${isSelected ? ' is-selected' : ''}`}
+<div
+  class="song-row"
+  class:is-selection-mode={selectionMode}
+  class:is-selected={isSelected}
+  class:is-playing={isPlaying}
+  class:is-hovered={isHovered || isFocused}
+  class:is-reduced-motion={reducedMotion}
   data-song-cid={song.cid}
   role="button"
   tabindex="0"
-  animate={rowSurface}
-  whileTap={reducedMotion ? undefined : { scale: 0.996 }}
-  transition={motionTransition}
   onclick={handleRowActivate}
   onmouseenter={() => {
     isHovered = true;
@@ -195,188 +139,120 @@
       <span class="song-selection-dot"></span>
     </button>
   {/if}
-  <motion.div
-    class="song-number"
-    animate={{
-      color: showEmphasis ? 'var(--accent)' : 'var(--text-tertiary)',
-      opacity: showEmphasis ? 0.86 : 1,
-    }}
-    transition={motionTransition}
-  >
+  <div class="song-number" class:is-emphasis={showEmphasis}>
     {index + 1}
-  </motion.div>
+  </div>
   <div class="song-info">
-    <motion.div
-      class="song-name"
-      animate={{
-        color: showEmphasis ? 'var(--accent)' : 'var(--text-primary)',
-      }}
-      transition={motionTransition}
-    >
+    <div class="song-name" class:is-emphasis={showEmphasis}>
       {song.name}
-    </motion.div>
-    <motion.div
-      class="song-artists"
-      animate={{
-        color: 'var(--text-secondary)',
-        opacity: showEmphasis ? 0.92 : 1,
-      }}
-      transition={motionTransition}
-    >
-      {song.artists.join(', ')}
-    </motion.div>
+    </div>
+    <div class="song-artists">
+      {song.artists.join(' · ')}
+    </div>
+  </div>
+  <div
+    class="song-play-indicator"
+    class:is-playing={isPlaying}
+    class:is-visible={showPlayIndicator}
+  >
+    <svg class="play-indicator-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {#if isPlaying}
+        <rect x="7.15" y="5.95" width="3.4" height="12.1" rx="1.25"></rect>
+        <rect x="13.45" y="5.95" width="3.4" height="12.1" rx="1.25"></rect>
+      {:else}
+        <path d="M8.2 6.3v11.4L17.35 12z"></path>
+      {/if}
+    </svg>
+  </div>
+  <div class="song-actions">
     {#if showDownloadedBadge}
       <span class="song-download-badge">{downloadedBadgeLabel}</span>
     {/if}
-  </div>
-  <div class="song-actions">
-    <motion.div
-      class="play-indicator"
-      animate={indicatorState}
-      transition={motionTransition}
-    >
-      {#if isPlaying}
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <rect x="2" y="2" width="4" height="10" rx="1" />
-          <rect x="8" y="2" width="4" height="10" rx="1" />
-        </svg>
-      {:else}
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <path d="M4 2.5l7 4.5-7 4.5V2.5z" />
-        </svg>
-      {/if}
-    </motion.div>
-    <motion.button
+    <button
       type="button"
-      class="download-button"
+      class="song-download-button"
+      class:is-busy={isBusy}
+      disabled={isDownloadDisabled}
       aria-label={downloadButtonLabel}
       title={downloadButtonTitle}
-      disabled={!onDownload || isDownloadDisabled}
-      animate={{
-        opacity: isDownloadDisabled ? 0.52 : isBusy ? 0.78 : 1,
-        scale: 1,
-        backgroundColor: isBusy
-          ? 'rgba(var(--accent-rgb), 0.12)'
-          : showEmphasis
-            ? 'rgba(var(--accent-rgb), 0.08)'
-            : 'rgba(15, 23, 42, 0.04)',
-        color: isBusy
-          ? 'var(--accent)'
-          : showEmphasis
-            ? 'var(--accent)'
-            : 'var(--text-secondary)',
-      }}
-      transition={motionTransition}
       onclick={(event: MouseEvent) => {
         event.stopPropagation();
         onDownload?.();
       }}
     >
-      {#if downloadState === 'creating'}
-        <motion.svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.1"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          animate={reducedMotion ? undefined : { rotate: 360 }}
-          transition={{
-            duration: 0.9,
-            ease: 'linear',
-            repeat: reducedMotion ? 0 : Infinity,
-          }}
-        >
-          <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
-          <path d="M21 3v6h-6"></path>
-        </motion.svg>
-      {:else if downloadState === 'queued'}
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.1"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 7v5"></path>
-          <path d="m9.5 10.5 2.5 2.5 2.5-2.5"></path>
-          <path d="M5 18h14"></path>
-          <path d="M8 4.5h8"></path>
-        </svg>
-      {:else if downloadState === 'running'}
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.1"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 5v9"></path>
-          <path d="m8.5 10.5 3.5 3.5 3.5-3.5"></path>
-          <path d="M5 18h14"></path>
-        </svg>
-      {:else}
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.1"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-      {/if}
-    </motion.button>
+      <svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true">
+        {#if downloadState === 'creating' || downloadState === 'running'}
+          <circle class="download-spinner-ring" cx="12" cy="12" r="8"></circle>
+        {:else if downloadState === 'queued'}
+          <circle cx="12" cy="12" r="2.5"></circle>
+          <circle cx="12" cy="6" r="1.5" opacity="0.4"></circle>
+          <circle cx="12" cy="18" r="1.5" opacity="0.4"></circle>
+        {:else}
+          <path d="M12 4v12m0 0-4-4m4 4 4-4"></path>
+          <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"></path>
+        {/if}
+      </svg>
+    </button>
   </div>
-</motion.div>
+</div>
 
 <style>
-  :global(.song-row) {
+  .song-row {
     display: flex;
     align-items: center;
-    padding: 14px 10px;
-    margin: 0;
-    border-radius: 18px;
-    gap: 18px;
-    cursor: pointer;
-    user-select: none;
-    outline: none;
-    box-shadow: inset 0 0 0 1px transparent;
-    background: transparent;
-  }
-
-  :global(.song-row.is-selection-mode) {
     gap: 14px;
+    padding: 10px 16px;
+    border-radius: 14px;
+    cursor: pointer;
+    outline: none;
+    background: rgba(15, 23, 42, 0);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0);
+    transition:
+      background-color 0.16s ease-out,
+      box-shadow 0.16s ease-out;
   }
 
-  :global(.song-row:focus-visible) {
-    box-shadow:
-      inset 0 0 0 1px rgba(var(--accent-rgb), 0.16),
-      0 0 0 4px rgba(var(--accent-rgb), 0.08);
+  .song-row:not(.is-reduced-motion):active {
+    transform: scale(0.996);
   }
 
-  :global(.song-number) {
+  .song-row.is-hovered:not(.is-playing):not(.is-selected) {
+    background: rgba(15, 23, 42, 0.04);
+  }
+
+  .song-row.is-playing {
+    background: rgba(var(--accent-rgb), 0.1);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.08);
+  }
+
+  .song-row.is-selected {
+    background: rgba(var(--accent-rgb), 0.12);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.12);
+  }
+
+  .song-row.is-reduced-motion {
+    transition: none;
+  }
+
+  .song-number {
     width: 28px;
-    font-size: 15px;
-    font-variant-numeric: tabular-nums;
     text-align: center;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text-tertiary);
+    flex-shrink: 0;
+    transition:
+      color 0.16s ease-out,
+      opacity 0.16s ease-out;
+  }
+
+  .song-number.is-emphasis {
+    color: var(--accent);
+    opacity: 0.86;
+  }
+
+  .song-row.is-reduced-motion .song-number {
+    transition: none;
   }
 
   .song-info {
@@ -384,11 +260,93 @@
     min-width: 0;
   }
 
+  .song-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.16s ease-out;
+  }
+
+  .song-name.is-emphasis {
+    color: var(--accent);
+  }
+
+  .song-row.is-reduced-motion .song-name {
+    transition: none;
+  }
+
+  .song-artists {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+
+  .song-play-indicator {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0;
+    background: rgba(15, 23, 42, 0.05);
+    color: var(--text-secondary);
+    box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
+    transition:
+      opacity 0.16s ease-out,
+      transform 0.16s ease-out,
+      background-color 0.16s ease-out,
+      color 0.16s ease-out,
+      box-shadow 0.16s ease-out;
+  }
+
+  .song-play-indicator.is-visible:not(.is-playing) {
+    opacity: 1;
+    background: rgba(var(--accent-rgb), 0.1);
+    color: var(--accent);
+  }
+
+  .song-play-indicator.is-playing {
+    opacity: 1;
+    background: var(--accent);
+    color: #ffffff;
+    box-shadow: 0 10px 20px rgba(var(--accent-rgb), 0.18);
+  }
+
+  .song-play-indicator:not(.is-visible):not(.is-playing) {
+    transform: scale(0.92);
+  }
+
+  .song-row.is-reduced-motion .song-play-indicator {
+    transition: none;
+    transform: scale(1);
+  }
+
+  .play-indicator-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    stroke: none;
+  }
+
+  .song-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .song-download-badge {
     display: inline-flex;
     align-items: center;
-    margin-top: 6px;
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: 999px;
     font-size: 11px;
     line-height: 1;
@@ -397,121 +355,109 @@
     border: 1px solid rgba(var(--accent-rgb), 0.12);
   }
 
-  .song-actions {
+  .song-download-button {
+    appearance: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
+    justify-content: center;
+    padding: 0;
+    transition:
+      background-color 0.16s ease-out,
+      color 0.16s ease-out;
+  }
+
+  .song-download-button:hover:not(:disabled) {
+    background: rgba(var(--accent-rgb), 0.1);
+    color: var(--accent);
+  }
+
+  .song-download-button:disabled {
+    opacity: 0.42;
+    cursor: default;
+  }
+
+  .song-download-button.is-busy {
+    color: var(--accent);
+    opacity: 1;
+  }
+
+  .song-row.is-reduced-motion .song-download-button {
+    transition: none;
+  }
+
+  .download-icon {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .download-spinner-ring {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-dasharray: 20 30;
+    animation: download-spin 0.9s linear infinite;
+  }
+
+  @keyframes download-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .song-selection-toggle {
-    width: 28px;
-    height: 28px;
+    appearance: none;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
-    border: 1px solid rgba(var(--accent-rgb), 0.16);
-    background: rgba(15, 23, 42, 0.03);
+    border: 2px solid var(--text-tertiary);
+    background: transparent;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
+    padding: 0;
     flex-shrink: 0;
     transition:
-      background 0.16s ease,
-      border-color 0.16s ease,
-      opacity 0.16s ease;
+      border-color 0.16s ease-out,
+      background-color 0.16s ease-out;
   }
 
   .song-selection-toggle.is-selected {
-    background: rgba(var(--accent-rgb), 0.12);
-    border-color: rgba(var(--accent-rgb), 0.3);
+    border-color: var(--accent);
+    background: var(--accent);
   }
 
   .song-selection-toggle:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.42;
+    cursor: default;
   }
 
   .song-selection-dot {
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: transparent;
-    box-shadow: inset 0 0 0 1.5px rgba(var(--accent-rgb), 0.4);
-    transition:
-      background 0.16s ease,
-      box-shadow 0.16s ease,
-      transform 0.16s ease;
+    transition: background-color 0.16s ease-out;
   }
 
   .song-selection-toggle.is-selected .song-selection-dot {
-    background: var(--accent);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-    transform: scale(1.02);
+    background: #ffffff;
   }
 
-  :global(.song-name) {
-    margin-bottom: 4px;
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--text-primary);
-  }
-
-  :global(.song-artists) {
-    font-size: 13px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  :global(.play-indicator) {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(15, 23, 42, 0.05);
-    color: var(--text-secondary);
-    box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
-    flex-shrink: 0;
-  }
-
-  :global(.download-button) {
-    width: 34px;
-    height: 34px;
-    border: 0;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(15, 23, 42, 0.04);
-    color: var(--text-secondary);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  :global(.download-button:disabled) {
-    cursor: not-allowed;
-  }
-
-  @media (max-width: 560px) {
-    :global(.song-row) {
-      padding: 12px 6px;
-      gap: 14px;
-    }
-
-    :global(.song-number) {
-      width: 22px;
-      font-size: 14px;
-    }
-
-    :global(.song-name) {
-      font-size: 15px;
-    }
+  .song-row.is-reduced-motion .song-selection-toggle,
+  .song-row.is-reduced-motion .song-selection-dot {
+    transition: none;
   }
 </style>

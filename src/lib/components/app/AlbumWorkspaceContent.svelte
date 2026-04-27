@@ -1,8 +1,7 @@
 <script lang="ts">
   import * as m from '$lib/paraglide/messages.js';
   import { localeState } from '$lib/i18n';
-  import { AnimatePresence, motion } from '@humanspeak/svelte-motion';
-  import type { MotionTransition } from '@humanspeak/svelte-motion';
+  import { fade } from 'svelte/transition';
   import { OverlayScrollbarsComponent } from 'overlayscrollbars-svelte';
   import type { EventListeners, PartialOptions } from 'overlayscrollbars';
   import type { AlbumDetail, SongEntry } from '$lib/types';
@@ -12,7 +11,6 @@
   import AlbumDetailPanel from '$lib/components/app/AlbumDetailPanel.svelte';
 
   type SongDownloadState = 'idle' | 'creating' | 'queued' | 'running';
-  type MotionTarget = Record<string, string | number>;
 
   interface Props {
     loadingDetail: boolean;
@@ -54,13 +52,10 @@
     hasCurrentSelectionJob: (songCids: string[]) => boolean;
   }
 
-  const PANEL_DURATION = 0.18;
-  const CONTENT_MASK_DURATION = 0.14;
-
   let {
     loadingDetail,
     showDetailSkeleton,
-    albumRequestSeq,
+    albumRequestSeq: _albumRequestSeq,
     selectedAlbum,
     selectedAlbumArtworkUrl,
     currentSongCid,
@@ -97,20 +92,8 @@
     hasCurrentSelectionJob,
   }: Props = $props();
 
-  function motionTransition(duration: number, delay = 0): MotionTransition {
-    return {
-      duration: reducedMotion ? 0 : duration,
-      delay: reducedMotion ? 0 : delay,
-      ease: 'easeOut',
-    };
-  }
-
-  function fadeEnter(opacity = 0): MotionTarget {
-    return reducedMotion ? { opacity: 1 } : { opacity };
-  }
-
-  function fadeExit(opacity = 0): MotionTarget {
-    return { opacity };
+  function dur(base: number): number {
+    return reducedMotion ? 0 : base;
   }
 
   const emptyLabels = $derived.by(() => {
@@ -132,34 +115,28 @@
   onwheel={onContentWheel}
   aria-busy={loadingDetail}
 >
-  <AnimatePresence mode="wait">
-    {#if loadingDetail && showDetailSkeleton}
-      <motion.section
-        key={`loading-${albumRequestSeq}`}
-        class="album-panel album-panel-loading"
-        initial={fadeEnter()}
-        animate={{ opacity: 1 }}
-        exit={fadeExit()}
-        transition={motionTransition(PANEL_DURATION)}
-      >
-        <AlbumStage
-          loading={true}
-          {reducedMotion}
-          stageStyle={albumStageStyle}
-          mediaHeight={albumStageMediaHeight}
-          scrimOpacity={albumStageScrimOpacity}
-          bind:element={albumStageElement}
-        />
-        <AlbumDetailSkeleton {reducedMotion} />
-      </motion.section>
-    {:else if selectedAlbum}
-      <motion.section
-        key={selectedAlbum.cid}
+  {#if loadingDetail && showDetailSkeleton}
+    <section
+      class="album-panel album-panel-loading"
+      in:fade={{ duration: dur(180) }}
+      out:fade={{ duration: dur(180) }}
+    >
+      <AlbumStage
+        loading={true}
+        {reducedMotion}
+        stageStyle={albumStageStyle}
+        mediaHeight={albumStageMediaHeight}
+        scrimOpacity={albumStageScrimOpacity}
+        bind:element={albumStageElement}
+      />
+      <AlbumDetailSkeleton {reducedMotion} />
+    </section>
+  {:else if selectedAlbum}
+    {#key selectedAlbum.cid}
+      <section
         class="album-panel"
-        initial={fadeEnter()}
-        animate={{ opacity: 1 }}
-        exit={fadeExit()}
-        transition={motionTransition(PANEL_DURATION)}
+        in:fade={{ duration: dur(180) }}
+        out:fade={{ duration: dur(180) }}
       >
         <AlbumStage
           albumName={selectedAlbum.name}
@@ -198,31 +175,23 @@
           {isCurrentSelectionCreating}
           {hasCurrentSelectionJob}
         />
-      </motion.section>
-    {/if}
-  </AnimatePresence>
+      </section>
+    {/key}
+  {/if}
 
   {#if !loadingDetail && !selectedAlbum}
     <h1 class="page-title">{emptyLabels.title}</h1>
     <p class="page-subtitle">{emptyLabels.hint}</p>
   {/if}
 
-  <AnimatePresence>
-    {#if loadingDetail && selectedAlbum}
-      <motion.div
-        key={`content-mask-${albumRequestSeq}`}
-        class="content-loading-mask"
-        aria-hidden="true"
-        initial={fadeEnter()}
-        animate={{ opacity: 1 }}
-        exit={fadeExit()}
-        transition={motionTransition(CONTENT_MASK_DURATION)}
-      >
-        <MotionSpinner
-          className="content-loading-mask-spinner"
-          {reducedMotion}
-        />
-      </motion.div>
-    {/if}
-  </AnimatePresence>
+  {#if loadingDetail && selectedAlbum}
+    <div
+      class="content-loading-mask"
+      aria-hidden="true"
+      in:fade={{ duration: dur(140) }}
+      out:fade={{ duration: dur(140) }}
+    >
+      <MotionSpinner className="content-loading-mask-spinner" {reducedMotion} />
+    </div>
+  {/if}
 </OverlayScrollbarsComponent>

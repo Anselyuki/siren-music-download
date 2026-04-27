@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
-  import type { MotionTransition } from '@humanspeak/svelte-motion';
+  import { fade, fly } from 'svelte/transition';
   import SongRow from '$lib/components/SongRow.svelte';
   import {
     getDownloadBadgeLabel,
@@ -9,7 +8,6 @@
   import type { AlbumDetail, SongEntry } from '$lib/types';
 
   type SongDownloadState = 'idle' | 'creating' | 'queued' | 'running';
-  type MotionTarget = Record<string, string | number>;
 
   interface Props {
     album: AlbumDetail;
@@ -37,20 +35,11 @@
     hasCurrentSelectionJob: (songCids: string[]) => boolean;
   }
 
-  const HERO_DURATION = 0.22;
-  const HERO_DELAY = 0.03;
-  const LIST_DURATION = 0.2;
-  const LIST_DELAY = 0.07;
-
   let props: Props = $props();
 
-  const interactiveTransition = $derived.by(
-    () =>
-      ({
-        duration: props.reducedMotion ? 0 : 0.16,
-        ease: 'easeOut',
-      }) as const
-  );
+  function dur(base: number): number {
+    return props.reducedMotion ? 0 : base;
+  }
 
   const selectedSongCount = $derived.by(() => props.selectedSongCids.length);
   const selectedSongsLabel = $derived.by(() => {
@@ -80,87 +69,19 @@
   const isSelectionDownloadDisabled = $derived.by(() =>
     props.isSelectionDownloadDisabled(props.selectedSongCids)
   );
-
-  function motionTransition(duration: number, delay = 0): MotionTransition {
-    return {
-      duration: props.reducedMotion ? 0 : duration,
-      delay: props.reducedMotion ? 0 : delay,
-      ease: 'easeOut',
-    };
-  }
-
-  function fadeExit(opacity = 0): MotionTarget {
-    return { opacity };
-  }
-
-  function axisEnter(axis: 'x' | 'y', offset: number): MotionTarget {
-    return props.reducedMotion
-      ? { opacity: 1 }
-      : { opacity: 0, [axis]: offset };
-  }
-
-  function axisAnimate(axis: 'x' | 'y'): MotionTarget {
-    return { opacity: 1, [axis]: 0 };
-  }
-
-  function axisExit(axis: 'x' | 'y', offset: number): MotionTarget {
-    return props.reducedMotion
-      ? { opacity: 0 }
-      : { opacity: 0, [axis]: offset };
-  }
-
-  function appButtonAnimate(primary = false, disabled = false): MotionTarget {
-    return primary
-      ? {
-          backgroundColor: disabled ? 'var(--bg-tertiary)' : 'var(--accent)',
-          color: disabled ? 'var(--text-tertiary)' : '#ffffff',
-          boxShadow: disabled
-            ? '0 0 0 rgba(var(--accent-rgb), 0)'
-            : '0 10px 24px rgba(var(--accent-rgb), 0.16)',
-          opacity: disabled ? 0.72 : 1,
-        }
-      : {
-          backgroundColor: 'var(--bg-tertiary)',
-          color: 'var(--text-primary)',
-          boxShadow: '0 0 0 rgba(var(--accent-rgb), 0)',
-          opacity: disabled ? 0.42 : 1,
-        };
-  }
-
-  function appButtonHover(
-    primary = false,
-    disabled = false
-  ): MotionTarget | undefined {
-    if (disabled) return undefined;
-
-    return primary
-      ? {
-          backgroundColor: 'var(--accent-hover)',
-          boxShadow: '0 10px 24px rgba(var(--accent-rgb), 0.2)',
-          ...(props.reducedMotion ? {} : { y: -1 }),
-        }
-      : {
-          backgroundColor: 'var(--hover-bg-elevated)',
-          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
-          ...(props.reducedMotion ? {} : { y: -1 }),
-        };
-  }
 </script>
 
-<motion.div
+<div
   class="album-detail-card"
-  initial={{ opacity: 0 }}
-  animate={{ opacity: 1 }}
-  exit={fadeExit()}
-  transition={motionTransition(HERO_DURATION)}
+  class:is-reduced-motion={props.reducedMotion}
+  in:fade={{ duration: dur(220) }}
+  out:fade={{ duration: dur(220) }}
 >
   <div class="album-hero">
-    <motion.div
+    <div
       class="album-hero-info"
-      initial={axisEnter('y', 14)}
-      animate={axisAnimate('y')}
-      exit={axisExit('y', 8)}
-      transition={motionTransition(HERO_DURATION, HERO_DELAY)}
+      in:fly={{ y: 14, duration: dur(220), delay: dur(30) }}
+      out:fly={{ y: 8, duration: dur(220) }}
     >
       {#if props.album.belong}
         <span class="album-belong-tag">{props.album.belong.toUpperCase()}</span>
@@ -181,16 +102,12 @@
         {/if}
       </div>
       <div class="controls album-hero-actions">
-        <motion.button
+        <button
+          type="button"
           class="btn btn-primary"
+          class:is-disabled={isAlbumDownloadDisabled}
           onclick={() => props.onDownloadAlbum(props.album.cid)}
           disabled={isAlbumDownloadDisabled}
-          animate={appButtonAnimate(true, isAlbumDownloadDisabled)}
-          whileHover={appButtonHover(true, isAlbumDownloadDisabled)}
-          whileTap={!props.reducedMotion && !isAlbumDownloadDisabled
-            ? { y: 0, scale: 0.98, opacity: 0.94 }
-            : undefined}
-          transition={interactiveTransition}
         >
           {#if isAlbumDownloadCreating}
             正在创建任务...
@@ -199,69 +116,44 @@
           {:else}
             下载整张专辑
           {/if}
-        </motion.button>
-        <motion.button
-          class="btn"
-          onclick={props.onToggleSelectionMode}
-          animate={appButtonAnimate(false, false)}
-          whileHover={appButtonHover(false, false)}
-          whileTap={props.reducedMotion
-            ? undefined
-            : { y: 0, scale: 0.98, opacity: 0.94 }}
-          transition={interactiveTransition}
-        >
+        </button>
+        <button type="button" class="btn" onclick={props.onToggleSelectionMode}>
           {props.selectionModeEnabled ? '取消多选' : '多选下载'}
-        </motion.button>
+        </button>
         {#if props.selectionModeEnabled}
-          <motion.button
+          <button
+            type="button"
             class="btn"
+            class:is-disabled={isAllSongsSelected}
             onclick={props.onSelectAllSongs}
             disabled={isAllSongsSelected}
-            animate={appButtonAnimate(false, isAllSongsSelected)}
-            whileHover={appButtonHover(false, isAllSongsSelected)}
-            whileTap={!props.reducedMotion && !isAllSongsSelected
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
           >
             全选
-          </motion.button>
-          <motion.button
+          </button>
+          <button
+            type="button"
             class="btn"
+            class:is-disabled={selectedSongCount === 0}
             onclick={props.onDeselectAllSongs}
             disabled={selectedSongCount === 0}
-            animate={appButtonAnimate(false, selectedSongCount === 0)}
-            whileHover={appButtonHover(false, selectedSongCount === 0)}
-            whileTap={!props.reducedMotion && selectedSongCount > 0
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
           >
             清空
-          </motion.button>
-          <motion.button
+          </button>
+          <button
+            type="button"
             class="btn"
+            class:is-disabled={!canInvertSelection}
             onclick={props.onInvertSongSelection}
             disabled={!canInvertSelection}
-            animate={appButtonAnimate(false, !canInvertSelection)}
-            whileHover={appButtonHover(false, !canInvertSelection)}
-            whileTap={!props.reducedMotion && canInvertSelection
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
           >
             反选
-          </motion.button>
-          <motion.button
+          </button>
+          <button
+            type="button"
             class="btn btn-primary"
+            class:is-disabled={isSelectionDownloadDisabled}
             onclick={() => props.onDownloadSelection(props.selectedSongCids)}
             disabled={isSelectionDownloadDisabled}
-            animate={appButtonAnimate(true, isSelectionDownloadDisabled)}
-            whileHover={appButtonHover(true, isSelectionDownloadDisabled)}
-            whileTap={!props.reducedMotion && !isSelectionDownloadDisabled
-              ? { y: 0, scale: 0.98, opacity: 0.94 }
-              : undefined}
-            transition={interactiveTransition}
           >
             {#if isSelectionCreating}
               正在创建批量任务...
@@ -270,18 +162,16 @@
             {:else}
               下载所选歌曲
             {/if}
-          </motion.button>
+          </button>
           <span class="album-selection-summary">{selectedSongsLabel}</span>
         {/if}
       </div>
-    </motion.div>
+    </div>
   </div>
-  <motion.div
+  <div
     class="song-list"
-    initial={axisEnter('y', 10)}
-    animate={axisAnimate('y')}
-    exit={fadeExit()}
-    transition={motionTransition(LIST_DURATION, LIST_DELAY)}
+    in:fly={{ y: 10, duration: dur(200), delay: dur(70) }}
+    out:fade={{ duration: dur(200) }}
   >
     {#each props.album.songs as song, index (song.cid)}
       <SongRow
@@ -299,5 +189,49 @@
         onToggleSelection={() => props.onToggleSongSelection(song.cid)}
       />
     {/each}
-  </motion.div>
-</motion.div>
+  </div>
+</div>
+
+<style>
+  .btn {
+    transition:
+      background-color 0.16s ease-out,
+      color 0.16s ease-out,
+      box-shadow 0.16s ease-out,
+      opacity 0.16s ease-out;
+  }
+
+  .btn:hover:not(:disabled):not(.is-reduced-motion *) {
+    transform: translateY(-1px);
+  }
+
+  .btn:active:not(:disabled):not(.is-reduced-motion *) {
+    transform: translateY(0) scale(0.98);
+    opacity: 0.94;
+  }
+
+  .btn:not(.btn-primary):hover:not(:disabled) {
+    background: var(--hover-bg-elevated);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.2);
+  }
+
+  .btn.is-disabled {
+    opacity: 0.42;
+  }
+
+  .btn-primary.is-disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+    box-shadow: 0 0 0 rgba(var(--accent-rgb), 0);
+    opacity: 0.72;
+  }
+
+  .is-reduced-motion .btn {
+    transition: none;
+  }
+</style>

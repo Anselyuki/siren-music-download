@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
-
   interface Props {
     className?: string;
     reducedMotion?: boolean;
@@ -18,14 +16,23 @@
   }: Props = $props();
 </script>
 
-<motion.div
+<div
   class={className}
   {style}
-  animate={reducedMotion ? { opacity: 1 } : { opacity: [0.46, 0.92, 0.46] }}
-  transition={{
-    duration: reducedMotion ? 0 : duration,
-    ease: 'easeInOut',
-    repeat: reducedMotion ? 0 : Infinity,
-    delay: reducedMotion ? 0 : delay,
-  }}
-/>
+  style:animation={reducedMotion
+    ? 'none'
+    : `motion-pulse ${duration}s ease-in-out ${delay}s infinite`}
+  style:opacity={reducedMotion ? 1 : undefined}
+></div>
+
+<style>
+  @keyframes motion-pulse {
+    0%,
+    100% {
+      opacity: 0.46;
+    }
+    50% {
+      opacity: 0.92;
+    }
+  }
+</style>

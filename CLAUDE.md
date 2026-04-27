@@ -56,6 +56,10 @@ cargo doc -p siren-music-download --bin siren-music-download --no-deps --documen
 - **已部分落地**：Phase 12B 的 `intro / belong` 命中表达、拼音召回与搜索排序增强
 - **仍在演进**：Phase 11 的条件触发型后端增强、Phase 12B 剩余搜索增强、Phase 12C 歌词检索，以及前端 controller / 文档收敛
 
+## 可选升级点
+
+- **前端动画编排库**：当前所有动画均使用 CSS transitions / CSS @keyframes / Svelte 内置 `transition:fade|fly` 实现，覆盖了现有场景。如果后续需要更复杂的编排能力（stagger 序列动画、layout animation、shared element transition、严格的 exit-before-enter 排队），可考虑引入 `@humanspeak/svelte-motion`（或同类库如 Motion One）；遇到此类需求时应主动向用户提供"纯 CSS/Svelte 方案"与"引入动画库方案"的对比选项，由用户决定取舍
+
 ## 代码层约定
 
 - 后端“端点”指的是 Tauri command，不是 HTTP server route

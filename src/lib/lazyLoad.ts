@@ -1,4 +1,3 @@
-import { animate } from '@humanspeak/svelte-motion';
 import { getImageDataUrl } from './api';
 
 export function lazyLoad(
@@ -8,16 +7,13 @@ export function lazyLoad(
     reducedMotion = false,
   }: { rootMargin?: string; reducedMotion?: boolean } = {}
 ) {
-  let imageAnimation: { cancel?: () => void; stop?: () => void } | null = null;
-  let placeholderAnimation: { cancel?: () => void; stop?: () => void } | null =
-    null;
+  let imageAnimation: Animation | null = null;
+  let placeholderAnimation: Animation | null = null;
   let loadSeq = 0;
 
   const stopAnimations = () => {
-    imageAnimation?.cancel?.();
-    imageAnimation?.stop?.();
-    placeholderAnimation?.cancel?.();
-    placeholderAnimation?.stop?.();
+    imageAnimation?.cancel();
+    placeholderAnimation?.cancel();
   };
 
   const observer = new IntersectionObserver(
@@ -53,17 +49,26 @@ export function lazyLoad(
             img.style.transform = reducedMotion ? 'scale(1)' : 'scale(1.04)';
             img.onload = () => {
               stopAnimations();
+              const duration = reducedMotion ? 0 : 180;
               if (placeholder) {
-                placeholderAnimation = animate(
-                  placeholder,
-                  { opacity: 0 },
-                  { duration: reducedMotion ? 0 : 0.18, ease: 'easeOut' }
+                placeholderAnimation = placeholder.animate(
+                  [
+                    { opacity: getComputedStyle(placeholder).opacity },
+                    { opacity: '0' },
+                  ],
+                  { duration, easing: 'ease-out', fill: 'forwards' }
                 );
               }
-              imageAnimation = animate(
-                img,
-                { opacity: 1, scale: 1 },
-                { duration: reducedMotion ? 0 : 0.2, ease: 'easeOut' }
+              imageAnimation = img.animate(
+                [
+                  { opacity: '0', transform: img.style.transform },
+                  { opacity: '1', transform: 'scale(1)' },
+                ],
+                {
+                  duration: reducedMotion ? 0 : 200,
+                  easing: 'ease-out',
+                  fill: 'forwards',
+                }
               );
             };
             img.onerror = () => {

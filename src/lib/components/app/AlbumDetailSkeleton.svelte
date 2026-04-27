@@ -1,54 +1,32 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
-  import type { MotionTransition } from '@humanspeak/svelte-motion';
+  import { fade } from 'svelte/transition';
   import MotionPulseBlock from '$lib/components/MotionPulseBlock.svelte';
   import MotionSpinner from '$lib/components/MotionSpinner.svelte';
-
-  type MotionTarget = Record<string, string | number>;
 
   interface Props {
     reducedMotion: boolean;
   }
 
-  const PANEL_DURATION = 0.18;
-  const HERO_DURATION = 0.22;
-  const HERO_DELAY = 0.03;
-  const LIST_DURATION = 0.2;
-  const LIST_DELAY = 0.07;
-
   let props: Props = $props();
 
-  function motionTransition(duration: number, delay = 0): MotionTransition {
-    return {
-      duration: props.reducedMotion ? 0 : duration,
-      delay: props.reducedMotion ? 0 : delay,
-      ease: 'easeOut',
-    };
-  }
-
-  function fadeEnter(opacity = 0): MotionTarget {
-    return props.reducedMotion ? { opacity: 1 } : { opacity };
-  }
-
-  function fadeExit(opacity = 0): MotionTarget {
-    return { opacity };
+  function fadeDuration(base: number): number {
+    return props.reducedMotion ? 0 : base;
   }
 </script>
 
-<motion.div
+<div
   class="album-detail-card"
-  initial={fadeEnter()}
-  animate={{ opacity: 1 }}
-  exit={fadeExit()}
-  transition={motionTransition(PANEL_DURATION)}
+  in:fade={{ duration: fadeDuration(180) }}
+  out:fade={{ duration: fadeDuration(180) }}
 >
   <div class="album-hero">
-    <motion.div
+    <div
       class="album-hero-info"
-      initial={fadeEnter()}
-      animate={{ opacity: 1 }}
-      exit={fadeExit()}
-      transition={motionTransition(HERO_DURATION, HERO_DELAY)}
+      in:fade={{
+        duration: fadeDuration(220),
+        delay: props.reducedMotion ? 0 : 30,
+      }}
+      out:fade={{ duration: fadeDuration(220) }}
     >
       <MotionPulseBlock
         className="album-hero-title loading-text"
@@ -59,18 +37,19 @@
         reducedMotion={props.reducedMotion}
         delay={0.14}
       />
-    </motion.div>
+    </div>
   </div>
-  <motion.div
+  <div
     class="loading album-loading"
-    initial={fadeEnter()}
-    animate={{ opacity: 1 }}
-    exit={fadeExit()}
-    transition={motionTransition(LIST_DURATION, LIST_DELAY)}
+    in:fade={{
+      duration: fadeDuration(200),
+      delay: props.reducedMotion ? 0 : 70,
+    }}
+    out:fade={{ duration: fadeDuration(200) }}
   >
     <span>正在加载歌曲...</span><MotionSpinner
       className="inline-loading-spinner"
       reducedMotion={props.reducedMotion}
     />
-  </motion.div>
-</motion.div>
+  </div>
+</div>

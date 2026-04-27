@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { motion } from '@humanspeak/svelte-motion';
-
   interface Props {
     className?: string;
     reducedMotion?: boolean;
@@ -16,13 +14,21 @@
   }: Props = $props();
 </script>
 
-<motion.div
+<div
   class={className}
   {style}
-  animate={reducedMotion ? { rotate: 0 } : { rotate: 360 }}
-  transition={{
-    duration: reducedMotion ? 0 : duration,
-    ease: 'linear',
-    repeat: reducedMotion ? 0 : Infinity,
-  }}
-/>
+  style:animation={reducedMotion
+    ? 'none'
+    : `motion-spin ${duration}s linear infinite`}
+></div>
+
+<style>
+  @keyframes motion-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>
