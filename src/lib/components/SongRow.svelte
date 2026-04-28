@@ -6,6 +6,7 @@
   } from '$lib/downloadBadge';
   import * as m from '$lib/paraglide/messages.js';
   import { localeState } from '$lib/i18n';
+
   type SongDownloadState = 'idle' | 'creating' | 'queued' | 'running';
   interface Props {
     song: SongEntry;
@@ -68,6 +69,7 @@
       downloadIdleTitle: m.common_download_idle_title(),
       deselectAria: m.common_selection_deselect_aria({ name: song.name }),
       selectAria: m.common_selection_select_aria({ name: song.name }),
+      playAria: m.library_song_row_play_aria({ name: song.name }),
     };
   });
   const downloadButtonLabel = $derived.by(() => {
@@ -115,6 +117,11 @@
   data-song-cid={song.cid}
   role="button"
   tabindex="0"
+  aria-label={selectionMode
+    ? isSelected
+      ? labels.deselectAria
+      : labels.selectAria
+    : labels.playAria}
   onclick={handleRowActivate}
   onmouseenter={() => {
     isHovered = true;

@@ -209,6 +209,7 @@
   "download_job_summary_song_count": "{count} 首歌曲",
   "download_job_summary_song_count_cross_albums": "{count} 首歌曲 · 跨 {albumCount} 张专辑",
   "app_error_init_failed": "初始化应用失败：{error}",
+  "app_error_event_subscribe_failed": "订阅 Tauri 事件失败：{error}",
   "app_error_album_not_found": "未找到对应专辑，可能需要先刷新列表。",
   "app_error_refresh_failed": "刷新专辑列表失败：{error}",
   "shell_error_save_settings_failed": "保存设置失败：{error}",
@@ -218,5 +219,15 @@
   "library_error_refresh_album_failed": "刷新当前专辑失败：{error}",
   "library_album_stage_default_name": "专辑",
   "download_job_selection_title": "已选 {count} 首",
-  "download_job_selection_title_cross_albums": "已选 {count} 首 · {albumCount} 张专辑"
+  "download_job_selection_title_cross_albums": "已选 {count} 首 · {albumCount} 张专辑",
+  "library_album_stage_alt": "{name} 横幅图",
+  "library_song_row_play_aria": "播放 {name}",
+  "library_search_result_aria": "{kind}：{name}",
+  "player_queue_item_aria": "第 {index} 首，{name}",
+  "download_filter_scope_aria": "筛选下载范围",
+  "download_filter_status_aria": "筛选下载状态",
+  "download_filter_kind_aria": "筛选下载类型",
+  "download_job_cancel_aria": "取消 {name}",
+  "download_job_retry_aria": "重试 {name}",
+  "download_job_progress_aria": "{name} 下载进度"
 }

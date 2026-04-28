@@ -87,6 +87,9 @@
       clearHistory: m.download_clear_history(),
       cancel: m.download_action_cancel(),
       retry: m.download_action_retry(),
+      filterScopeAria: m.download_filter_scope_aria(),
+      filterStatusAria: m.download_filter_status_aria(),
+      filterKindAria: m.download_filter_kind_aria(),
       emptyFilteredTitle: m.download_empty_filtered_title(),
       emptyFilteredHint: m.download_empty_filtered_hint(),
       emptyTitle: m.download_empty_title(),
@@ -198,6 +201,7 @@
         <div class="download-filter-grid">
           <Select.Root type="single" bind:value={scopeFilter}
             ><Select.Trigger
+              aria-label={labels.filterScopeAria}
               class="download-filter-trigger h-9 w-full border-[var(--download-border)] bg-[var(--download-control-bg)]"
               >{currentScopeLabel}</Select.Trigger
             ><Select.Content class="download-filter-select-content"
@@ -209,6 +213,7 @@
           >
           <Select.Root type="single" bind:value={statusFilter}
             ><Select.Trigger
+              aria-label={labels.filterStatusAria}
               class="download-filter-trigger h-9 w-full border-[var(--download-border)] bg-[var(--download-control-bg)]"
               >{currentStatusLabel}</Select.Trigger
             ><Select.Content class="download-filter-select-content"
@@ -220,6 +225,7 @@
           >
           <Select.Root type="single" bind:value={kindFilter}
             ><Select.Trigger
+              aria-label={labels.filterKindAria}
               class="download-filter-trigger h-9 w-full border-[var(--download-border)] bg-[var(--download-control-bg)]"
               >{currentKindLabel}</Select.Trigger
             ><Select.Content class="download-filter-select-content"
@@ -263,6 +269,9 @@
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={m.download_job_cancel_aria({
+                        name: getJobDisplayTitle(job),
+                      })}
                       onclick={() => void onCancelDownloadJob(job.id)}
                       ><XIcon data-icon="inline-start" />{labels.cancel}</Button
                     >
@@ -270,6 +279,9 @@
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={m.download_job_retry_aria({
+                        name: getJobDisplayTitle(job),
+                      })}
                       onclick={() => void onRetryDownloadJob(job.id)}
                       ><RotateCcwIcon
                         data-icon="inline-start"
@@ -279,7 +291,13 @@
                 </div>
               </div>
               <div class="download-progress-block">
-                <Progress class="download-progress" value={progress * 100} />
+                <Progress
+                  class="download-progress"
+                  value={progress * 100}
+                  aria-label={m.download_job_progress_aria({
+                    name: getJobDisplayTitle(job),
+                  })}
+                />
                 <p>{progressText}</p>
               </div>
               {#if errorSummary}<p class="download-error-summary">

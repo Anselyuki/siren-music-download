@@ -17,5 +17,8 @@ pub async fn search_library(
     state: State<'_, AppState>,
     request: SearchLibraryRequest,
 ) -> Result<SearchLibraryResponse, String> {
-    state.library_search_service.search(request).await
+    state
+        .library_search_service
+        .search(request, state.preferences().locale)
+        .await
 }

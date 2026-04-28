@@ -47,7 +47,7 @@
           <img
             class="album-stage-image"
             src={artworkUrl ?? undefined}
-            alt={`${albumName} banner`}
+            alt={m.library_album_stage_alt({ name: albumName })}
             loading="eager"
             style:opacity={imageOpacity}
             style:transform={imageTransform}

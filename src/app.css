@@ -220,7 +220,7 @@ body {
 /* 主容器 */
 .container {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 248px 1fr;
   height: 100vh;
   min-width: 1120px;
   gap: 0;
@@ -230,12 +230,18 @@ body {
 /* 侧边栏 */
 .sidebar {
   position: relative;
+  width: 248px;
+  min-width: 0;
   background:
     linear-gradient(180deg, var(--surface-tint-strong) 0%, transparent 40%),
     var(--bg-secondary);
   border-right: 1px solid var(--border);
-  padding: 24px 20px;
+  padding: 0;
   overflow-y: auto;
+}
+
+.sidebar .sidebar-layout {
+  padding: 24px 16px;
 }
 
 .section-title {
@@ -679,7 +685,7 @@ body {
   user-select: none;
 }
 
-.container.macos-overlay .sidebar {
+.container.macos-overlay .sidebar .sidebar-layout {
   padding-top: 60px;
 }
 

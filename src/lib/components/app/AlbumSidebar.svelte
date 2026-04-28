@@ -49,7 +49,11 @@
   const scopeOptions = $derived.by(() => {
     void localeState.current;
     return [
-      { value: 'all' as LibrarySearchScope, label: 'ALL' },
+      {
+        value: 'all' as LibrarySearchScope,
+        // "ALL" 是固定品牌文案，不走 i18n
+        label: 'ALL',
+      },
       {
         value: 'albums' as LibrarySearchScope,
         label: m.library_search_scope_albums(),
@@ -114,118 +118,185 @@
   }
 </script>
 
-<div class="h-full">
-  <div class="search-control-row">
-    <SearchIcon class="library-search-icon" aria-hidden="true" />
-    <Input
-      value={searchQuery}
-      placeholder=""
-      aria-label={labels.searchAria}
-      class="library-search-input"
-      oninput={(event) => {
-        const target = event.currentTarget as HTMLInputElement;
-        onSearchQueryChange(target.value);
-      }}
-    />
-    <Button
-      variant="outline"
-      size="icon"
-      class="library-search-scope-button"
-      aria-label={m.library_search_scope_aria({ scope: activeScopeLabel })}
-      title={m.library_search_scope_title({ scope: activeScopeLabel })}
-      onclick={cycleSearchScope}
-    >
-      {activeScopeLabel}
-    </Button>
-  </div>
-  <div class="library-search-divider" aria-hidden="true"></div>
-
-  {#if loadingAlbums}
-    <div class="loading">
-      <span>{labels.loadingAlbums}</span><MotionSpinner
-        className="inline-loading-spinner"
-        {reducedMotion}
+<div class="sidebar-layout">
+  <div class="sidebar-header">
+    <div class="search-control-row">
+      <SearchIcon class="library-search-icon" aria-hidden="true" />
+      <Input
+        value={searchQuery}
+        placeholder=""
+        aria-label={labels.searchAria}
+        class="library-search-input"
+        oninput={(event) => {
+          const target = event.currentTarget as HTMLInputElement;
+          onSearchQueryChange(target.value);
+        }}
       />
+      <Button
+        variant="outline"
+        size="icon"
+        class="library-search-scope-button active:!translate-y-0"
+        data-scope={searchScope}
+        aria-label={m.library_search_scope_aria({ scope: activeScopeLabel })}
+        title={m.library_search_scope_title({ scope: activeScopeLabel })}
+        onclick={cycleSearchScope}
+      >
+        {activeScopeLabel}
+      </Button>
     </div>
-  {:else if errorMsg && albums.length === 0}
-    <div class="empty-state">
-      <div class="empty-icon">⚠️</div>
-      <div class="empty-text">{labels.loadFailed}</div>
-      <div class="empty-text" style="margin-top: 8px; font-size: 12px;">
-        {errorMsg}
+    <div class="library-search-divider" aria-hidden="true"></div>
+  </div>
+
+  <div class="sidebar-scroll-area">
+    {#if loadingAlbums}
+      <div class="loading">
+        <span>{labels.loadingAlbums}</span><MotionSpinner
+          className="inline-loading-spinner"
+          {reducedMotion}
+        />
       </div>
-    </div>
-  {:else if isSearchMode}
-    {#if isSearchIndexBuilding}
-      <div class="search-status-card" aria-live="polite">
-        <div class="search-status-title">{labels.indexBuildingTitle}</div>
-        <div
-          class="search-status-progress"
-          role="progressbar"
-          aria-label={labels.indexBuildingAria}
-          aria-valuetext={labels.indexBuildingValuetext}
-        >
-          <div
-            class={`search-status-progress-bar${reducedMotion ? ' is-reduced-motion' : ''}`}
-          ></div>
-        </div>
-        <div class="search-status-hint">{labels.indexBuildingHint}</div>
-      </div>
-    {:else if searchStatusMessage}
+    {:else if errorMsg && albums.length === 0}
       <div class="empty-state">
-        <div class="empty-text">{searchStatusMessage}</div>
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-text">{labels.loadFailed}</div>
+        <div class="empty-text" style="margin-top: 8px; font-size: 12px;">
+          {errorMsg}
+        </div>
       </div>
-    {:else if searchResponse && searchResponse.items.length > 0}
-      <div class="album-list">
-        {#each searchResponse.items as item, index (`${item.kind}:${item.albumCid}:${item.songCid ?? 'album'}:${index}`)}
-          <button
-            type="button"
-            class={`search-result${selectedAlbumCid === item.albumCid ? ' is-selected' : ''}`}
-            onclick={() => onSelectSearchResult(item)}
+    {:else if isSearchMode}
+      {#if isSearchIndexBuilding}
+        <div class="search-status-card" aria-live="polite">
+          <div class="search-status-title">{labels.indexBuildingTitle}</div>
+          <div
+            class="search-status-progress"
+            role="progressbar"
+            aria-label={labels.indexBuildingAria}
+            aria-valuetext={labels.indexBuildingValuetext}
           >
-            <div class="search-result-kind">
-              {item.kind === 'album'
-                ? labels.resultKindAlbum
-                : labels.resultKindSong}
-            </div>
-            <div class="search-result-title">
-              {item.kind === 'song' && item.songTitle
-                ? item.songTitle
-                : item.albumTitle}
-            </div>
-            <div class="search-result-subtitle">
-              {#if item.kind === 'song'}
-                <span>{item.albumTitle}</span>
-              {/if}
-              {#if item.artistLine}
-                <span>{item.artistLine}</span>
-              {/if}
-            </div>
-          </button>
+            <div
+              class={`search-status-progress-bar${reducedMotion ? ' is-reduced-motion' : ''}`}
+            ></div>
+          </div>
+          <div class="search-status-hint">{labels.indexBuildingHint}</div>
+        </div>
+      {:else if searchStatusMessage}
+        <div class="empty-state">
+          <div class="empty-text">{searchStatusMessage}</div>
+        </div>
+      {:else if searchResponse && searchResponse.items.length > 0}
+        <div class="album-list">
+          {#each searchResponse.items as item, index (`${item.kind}:${item.albumCid}:${item.songCid ?? 'album'}:${index}`)}
+            <button
+              type="button"
+              class={`search-result${selectedAlbumCid === item.albumCid ? ' is-selected' : ''}`}
+              aria-label={m.library_search_result_aria({
+                kind:
+                  item.kind === 'album'
+                    ? labels.resultKindAlbum
+                    : labels.resultKindSong,
+                name:
+                  item.kind === 'song' && item.songTitle
+                    ? item.songTitle
+                    : item.albumTitle,
+              })}
+              onclick={() => onSelectSearchResult(item)}
+            >
+              <div class="search-result-kind">
+                {item.kind === 'album'
+                  ? labels.resultKindAlbum
+                  : labels.resultKindSong}
+              </div>
+              <div class="search-result-title">
+                {item.kind === 'song' && item.songTitle
+                  ? item.songTitle
+                  : item.albumTitle}
+              </div>
+              <div class="search-result-subtitle">
+                {#if item.kind === 'song'}
+                  <span>{item.albumTitle}</span>
+                {/if}
+                {#if item.artistLine}
+                  <span>{item.artistLine}</span>
+                {/if}
+              </div>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <div class="empty-state">
+          <div class="empty-text">{labels.noResults}</div>
+        </div>
+      {/if}
+    {:else}
+      <div class="album-list">
+        {#each albums as album (album.cid)}
+          <AlbumCard
+            {album}
+            selected={selectedAlbumCid === album.cid}
+            {reducedMotion}
+            onclick={() => onSelect(album)}
+          />
         {/each}
       </div>
-    {:else}
-      <div class="empty-state">
-        <div class="empty-text">{labels.noResults}</div>
-      </div>
     {/if}
-  {:else}
-    <div class="album-list">
-      {#each albums as album (album.cid)}
-        <AlbumCard
-          {album}
-          selected={selectedAlbumCid === album.cid}
-          {reducedMotion}
-          onclick={() => onSelect(album)}
-        />
-      {/each}
-    </div>
-  {/if}
+  </div>
 </div>
 
 <style>
+  .sidebar-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+  }
+
+  .sidebar-header {
+    flex-shrink: 0;
+    min-width: 0;
+  }
+
+  .sidebar-scroll-area {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    padding-right: 0;
+  }
+
+  .sidebar-scroll-area::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .sidebar-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .sidebar-scroll-area::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.28);
+  }
+
+  .sidebar-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.42);
+  }
+
   .search-control-row {
     position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sidebar-layout :global(.album-list) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sidebar-layout :global(.album-card) {
+    width: 100%;
+    min-width: 0;
   }
 
   .library-search-divider {
@@ -281,33 +352,111 @@
   }
 
   :global(.library-search-scope-button) {
+    --scope-bg: var(--accent);
+    --scope-bg-hover: var(--accent-hover);
+
+    interpolate-size: allow-keywords;
     position: absolute;
     top: 4px;
     right: 4px;
-    width: 32px;
+    width: auto;
+    min-width: 32px;
     height: 32px;
-    padding: 0;
-    border: 1px solid color-mix(in srgb, var(--accent) 72%, white 28%);
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--scope-bg) 72%, white 28%);
     border-radius: 8px;
-    background: var(--accent);
+    background: var(--scope-bg);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      0 5px 12px rgba(var(--accent-rgb), 0.24);
+      0 5px 12px color-mix(in srgb, var(--scope-bg) 24%, transparent);
     color: var(--accent-readable-foreground);
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0;
     line-height: 1;
+    white-space: nowrap;
+    transition:
+      width 0.25s ease,
+      transform 0.15s ease,
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  :global(.library-search-scope-button[data-scope='albums']) {
+    --scope-bg: oklch(from var(--accent) l c calc(h + 22));
+    --scope-bg-hover: oklch(from var(--accent-hover) l c calc(h + 22));
+  }
+
+  :global(.library-search-scope-button[data-scope='songs']) {
+    --scope-bg: oklch(from var(--accent) l c calc(h - 28));
+    --scope-bg-hover: oklch(from var(--accent-hover) l c calc(h - 28));
   }
 
   :global(.library-search-scope-button:hover) {
-    border-color: color-mix(in srgb, var(--accent-hover) 78%, white 22%);
-    background: var(--accent-hover);
+    border-color: color-mix(in srgb, var(--scope-bg-hover) 78%, white 22%);
+    background: var(--scope-bg-hover);
     color: var(--accent-hover-readable-foreground);
   }
 
+  :global(.library-search-scope-button[data-scope='all']) {
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  :global(.library-search-scope-button[data-scope='all']::before) {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 800px;
+    height: 800px;
+    background:
+      radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.32) 0.7px,
+          transparent 0.7px
+        )
+        0 0 / 3.5px 3.5px,
+      linear-gradient(
+        to right,
+        #ff2080,
+        #c830ff,
+        #5050ff,
+        #00a0ff,
+        #00d4a0,
+        #60e840,
+        #e8d020,
+        #ff8020,
+        #ff2080
+      );
+    background-size:
+      3.5px 3.5px,
+      25% 100%;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(135deg);
+    animation: scope-rainbow-slide 2.4s linear infinite;
+    transition: opacity 0.3s ease;
+  }
+
+  :global(.library-search-scope-button[data-scope='all']:hover) {
+    border-color: rgba(255, 255, 255, 0.48);
+    background: transparent;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    -webkit-text-stroke: 2px rgba(0, 0, 0, 0.5);
+    paint-order: stroke fill;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+
+  :global(.library-search-scope-button[data-scope='all']:hover::before) {
+    opacity: 1;
+  }
+
   :global(.library-search-scope-button:active) {
-    transform: translateY(1px);
+    transform: scaleX(0.92);
     box-shadow:
       inset 0 1px 2px rgba(15, 23, 42, 0.08),
       0 2px 6px rgba(15, 23, 42, 0.06);
@@ -369,6 +518,16 @@
 
     100% {
       transform: translateX(240%);
+    }
+  }
+
+  @keyframes scope-rainbow-slide {
+    from {
+      transform: translate(-50%, -50%) rotate(135deg) translateX(0);
+    }
+
+    to {
+      transform: translate(-50%, -50%) rotate(135deg) translateX(-25%);
     }
   }
 

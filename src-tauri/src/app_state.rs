@@ -1,5 +1,6 @@
 use crate::audio_cache;
 use crate::download_session::DownloadSessionStore;
+use crate::i18n;
 use crate::local_inventory::LocalInventoryService;
 use crate::local_inventory_provenance::LocalInventoryProvenanceStore;
 use crate::logging::{LogCenter, LogLevel, LogPayload};
@@ -53,8 +54,11 @@ impl AppState {
             .path()
             .app_data_dir()
             .map_err(|e| format!("failed to get app data dir: {e}"))?;
+        let store = PreferencesStore::new(app_data_dir.clone());
+        let preferences = store.load(Some(log_center.as_ref()));
         let download_session_store = Arc::new(DownloadSessionStore::new(app_data_dir.clone()));
-        let loaded_download_session = download_session_store.load(Some(log_center.as_ref()));
+        let loaded_download_session =
+            download_session_store.load(Some(log_center.as_ref()), preferences.locale);
         let download_service = Arc::new(Mutex::new(DownloadService::from_manager_snapshot(
             loaded_download_session.snapshot.clone(),
         )));
@@ -64,8 +68,6 @@ impl AppState {
         let local_inventory_service =
             LocalInventoryService::new(local_inventory_provenance_store.clone());
         let search_data_dir = app_data_dir.join("library-search");
-        let store = PreferencesStore::new(app_data_dir);
-        let preferences = store.load(Some(log_center.as_ref()));
         let library_search_service =
             LibrarySearchService::new(search_data_dir, preferences.output_dir.clone());
         let state = Self {
@@ -142,7 +144,10 @@ impl AppState {
     }
 
     pub(crate) fn persist_download_snapshot(&self, snapshot: &DownloadManagerSnapshot) {
-        if let Err(error) = self.download_session_store.save(snapshot) {
+        if let Err(error) = self
+            .download_session_store
+            .save(snapshot, self.preferences().locale)
+        {
             self.log_center.record(
                 LogPayload::new(
                     LogLevel::Error,
@@ -213,10 +218,10 @@ impl AppState {
         let song_cid = current_state
             .song_cid
             .clone()
-            .ok_or_else(|| "No active track".to_string())?;
+            .ok_or_else(|| i18n::tr(self.preferences().locale, "player-no-active-track"))?;
 
         if current_state.is_loading {
-            return Err("Playback is still loading".to_string());
+            return Err(i18n::tr(self.preferences().locale, "player-still-loading"));
         }
 
         let target_position = normalize_seek_position(position_secs, current_state.duration);
@@ -335,7 +340,7 @@ impl AppState {
         let target = self
             .player
             .select_next_entry()
-            .ok_or_else(|| "No next track available".to_string())?;
+            .ok_or_else(|| i18n::tr(self.preferences().locale, "player-no-next-track"))?;
         self.play_song_internal(target.cid, target.cover_url, None)
             .await
     }
@@ -344,7 +349,7 @@ impl AppState {
         let target = self
             .player
             .select_previous_entry()
-            .ok_or_else(|| "No previous track available".to_string())?;
+            .ok_or_else(|| i18n::tr(self.preferences().locale, "player-no-previous-track"))?;
         self.play_song_internal(target.cid, target.cover_url, None)
             .await
     }

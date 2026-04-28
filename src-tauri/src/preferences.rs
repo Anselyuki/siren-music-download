@@ -142,8 +142,13 @@ impl PreferencesStore {
         Self { path }
     }
 
-    /// 从 TOML 文件加载偏好，缺失或损坏时用默认值初始化并写入
+    /// 从 TOML 文件加载偏好，缺失或损坏时用默认值初始化并写入。
+    ///
+    /// `load_locale` 强制使用 `Locale::default()`（`zh-CN`），因为在偏好文件解析成功前
+    /// 无法得知用户实际选择的语言。这意味着文件损坏或缺失时的日志/错误消息始终使用中文。
+    /// 这是一个有意的设计取舍——偏好加载是 locale 来源的上游，不可能自引用。
     pub(crate) fn load(&self, log_center: Option<&LogCenter>) -> AppPreferences {
+        // 偏好文件尚未解析前不知道用户选择的语言，强制使用默认 locale
         let load_locale = Locale::default();
         if self.path.exists() {
             match fs::read_to_string(&self.path) {

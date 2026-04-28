@@ -209,6 +209,7 @@
   "download_job_summary_song_count": "{count} songs",
   "download_job_summary_song_count_cross_albums": "{count} songs across {albumCount} albums",
   "app_error_init_failed": "Failed to initialize app: {error}",
+  "app_error_event_subscribe_failed": "Failed to subscribe Tauri events: {error}",
   "app_error_album_not_found": "Album not found. You may need to refresh the list.",
   "app_error_refresh_failed": "Failed to refresh album list: {error}",
   "shell_error_save_settings_failed": "Failed to save settings: {error}",
@@ -218,5 +219,15 @@
   "library_error_refresh_album_failed": "Failed to refresh current album: {error}",
   "library_album_stage_default_name": "Album",
   "download_job_selection_title": "{count} songs selected",
-  "download_job_selection_title_cross_albums": "{count} songs selected · {albumCount} albums"
+  "download_job_selection_title_cross_albums": "{count} songs selected · {albumCount} albums",
+  "library_album_stage_alt": "{name} banner",
+  "library_song_row_play_aria": "Play {name}",
+  "library_search_result_aria": "{kind}: {name}",
+  "player_queue_item_aria": "Track {index}, {name}",
+  "download_filter_scope_aria": "Filter by scope",
+  "download_filter_status_aria": "Filter by status",
+  "download_filter_kind_aria": "Filter by type",
+  "download_job_cancel_aria": "Cancel {name}",
+  "download_job_retry_aria": "Retry {name}",
+  "download_job_progress_aria": "{name} download progress"
 }

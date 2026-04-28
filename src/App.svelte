@@ -721,7 +721,7 @@
     } catch (error) {
       cleanup();
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`failed to subscribe tauri events: ${message}`, {
+      throw new Error(m.app_error_event_subscribe_failed({ error: message }), {
         cause: error,
       });
     }

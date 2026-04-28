@@ -2,6 +2,7 @@ use crate::app_state::AppState;
 use crate::local_inventory_provenance::{
     LocalInventoryProvenanceRecord, LocalInventoryProvenanceStore,
 };
+use crate::preferences::Locale;
 use siren_core::{
     aggregate_album_download_badge, album_badge_from_evidence, matched_track_evidence,
     track_badge_from_matches, Album, AlbumDetail, LocalAudioFileEvidence,
@@ -242,12 +243,14 @@ pub fn spawn_inventory_scan(
         emit_local_inventory_state_changed(&app, &started);
 
         let inventory_version = started.inventory_version.clone();
+        let locale = state.preferences().locale;
         let scan_result = collect_local_audio_evidence(
             Path::new(&root_output_dir),
             &root_output_dir,
             &inventory_version,
             &provenance_records,
             &state.local_inventory_service.cancel_flag,
+            locale,
             |event| emit_local_inventory_scan_progress(&app, &event),
         );
 
@@ -292,6 +295,7 @@ fn collect_local_audio_evidence(
     inventory_version: &str,
     provenance_records: &[LocalInventoryProvenanceRecord],
     cancel_flag: &AtomicBool,
+    locale: Locale,
     mut on_progress: impl FnMut(LocalInventoryScanProgressEvent),
 ) -> Result<ScanCollectionOutcome, String> {
     if root_output_dir.as_os_str().is_empty() || !root_output_dir.exists() {
@@ -305,7 +309,7 @@ fn collect_local_audio_evidence(
 
     if !root_output_dir.is_dir() {
         return Err(crate::i18n::tr(
-            crate::preferences::Locale::default(),
+            locale,
             "inventory-output-dir-not-directory",
         ));
     }
@@ -313,8 +317,12 @@ fn collect_local_audio_evidence(
     let mut audio_files = Vec::new();
     let mut files_scanned = 0_usize;
     let mut verified_track_count = 0_usize;
-    let visit_result =
-        visit_directory(root_output_dir, root_output_dir, cancel_flag, &mut |path| {
+    let visit_result = visit_directory(
+        root_output_dir,
+        root_output_dir,
+        cancel_flag,
+        locale,
+        &mut |path| {
             files_scanned += 1;
             let relative_path = path
                 .strip_prefix(root_output_dir)
@@ -328,6 +336,7 @@ fn collect_local_audio_evidence(
                         path,
                         relative_path,
                         provenance_records,
+                        locale,
                     )?;
                     if evidence.verification_state == LocalAudioFileVerificationState::Verified {
                         verified_track_count += 1;
@@ -346,7 +355,8 @@ fn collect_local_audio_evidence(
             });
 
             Ok(())
-        })?;
+        },
+    )?;
 
     if visit_result {
         Ok(ScanCollectionOutcome::Completed(ScanCollectionResult {
@@ -364,22 +374,13 @@ fn visit_directory(
     root_output_dir: &Path,
     current_path: &Path,
     cancel_flag: &AtomicBool,
+    locale: Locale,
     on_file: &mut impl FnMut(&Path) -> Result<(), String>,
 ) -> Result<bool, String> {
     let mut entries = std::fs::read_dir(current_path)
-        .map_err(|_| {
-            crate::i18n::tr(
-                crate::preferences::Locale::default(),
-                "inventory-read-dir-failed",
-            )
-        })?
+        .map_err(|_| crate::i18n::tr(locale, "inventory-read-dir-failed"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| {
-            crate::i18n::tr(
-                crate::preferences::Locale::default(),
-                "inventory-enumerate-dir-failed",
-            )
-        })?;
+        .map_err(|_| crate::i18n::tr(locale, "inventory-enumerate-dir-failed"))?;
     entries.sort_by_key(|entry| entry.path());
 
     for entry in entries {
@@ -388,19 +389,15 @@ fn visit_directory(
         }
 
         let path = entry.path();
-        let metadata = std::fs::symlink_metadata(&path).map_err(|_| {
-            crate::i18n::tr(
-                crate::preferences::Locale::default(),
-                "inventory-read-metadata-failed",
-            )
-        })?;
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|_| crate::i18n::tr(locale, "inventory-read-metadata-failed"))?;
 
         if metadata.file_type().is_symlink() {
             continue;
         }
 
         if metadata.is_dir() {
-            if !visit_directory(root_output_dir, &path, cancel_flag, on_file)? {
+            if !visit_directory(root_output_dir, &path, cancel_flag, locale, on_file)? {
                 return Ok(false);
             }
         } else if metadata.is_file() {
@@ -417,13 +414,10 @@ fn build_audio_file_evidence(
     path: &Path,
     relative_path: String,
     provenance_records: &[LocalInventoryProvenanceRecord],
+    locale: Locale,
 ) -> Result<LocalAudioFileEvidence, String> {
-    let metadata = std::fs::metadata(path).map_err(|_| {
-        crate::i18n::tr(
-            crate::preferences::Locale::default(),
-            "inventory-read-metadata-failed",
-        )
-    })?;
+    let metadata = std::fs::metadata(path)
+        .map_err(|_| crate::i18n::tr(locale, "inventory-read-metadata-failed"))?;
     let parent = path
         .parent()
         .and_then(|dir| dir.strip_prefix(root_output_dir).ok());
@@ -435,7 +429,7 @@ fn build_audio_file_evidence(
         .ok()
         .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_millis() as u64);
-    let candidate_checksum = checksum_path(path)?;
+    let candidate_checksum = checksum_path(path, locale)?;
     let verification_state =
         resolve_verification_state(&relative_path, &candidate_checksum, provenance_records);
 
@@ -475,13 +469,9 @@ fn resolve_verification_state(
     LocalAudioFileVerificationState::Unchecked
 }
 
-fn checksum_path(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|_| {
-        crate::i18n::tr(
-            crate::preferences::Locale::default(),
-            "inventory-read-audio-failed",
-        )
-    })?;
+fn checksum_path(path: &Path, locale: Locale) -> Result<String, String> {
+    let bytes =
+        std::fs::read(path).map_err(|_| crate::i18n::tr(locale, "inventory-read-audio-failed"))?;
     Ok(format!("{:x}", md5::compute(bytes)))
 }
 
@@ -527,6 +517,7 @@ mod tests {
     use crate::local_inventory_provenance::{
         LocalInventoryProvenanceRecord, LocalInventoryProvenanceStore,
     };
+    use crate::preferences::Locale;
     use siren_core::{
         Album, AlbumDetail, LocalAudioFileEvidence, LocalAudioFileVerificationState,
         LocalInventoryStatus, LocalTrackDownloadStatus, SongEntry, VerificationMode,
@@ -565,6 +556,7 @@ mod tests {
                 &started.inventory_version,
                 &[],
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("scan files");
@@ -630,6 +622,7 @@ mod tests {
                 &started.inventory_version,
                 &[],
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("scan files");
@@ -701,6 +694,7 @@ mod tests {
                 &started.inventory_version,
                 &[],
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("scan files");
@@ -869,6 +863,7 @@ mod tests {
                 &started.inventory_version,
                 &[],
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("empty scan");
@@ -882,6 +877,28 @@ mod tests {
             assert_eq!(snapshot.status, LocalInventoryStatus::Completed);
             assert_eq!(snapshot.scanned_file_count, 0);
             assert_eq!(snapshot.matched_track_count, 0);
+        }
+
+        #[tokio::test]
+        async fn non_directory_output_dir_uses_requested_locale() {
+            let temp_dir = tempdir().expect("temp dir");
+            let file_path = temp_dir.path().join("not-a-directory");
+            std::fs::write(&file_path, b"not a directory").expect("fixture file");
+
+            let error = match collect_local_audio_evidence(
+                &file_path,
+                &file_path.to_string_lossy(),
+                "v1",
+                &[],
+                &AtomicBool::new(false),
+                Locale::EnUS,
+                |_| {},
+            ) {
+                Ok(_) => panic!("file path should fail as output directory"),
+                Err(error) => error,
+            };
+
+            assert_eq!(error, "outputDir is not a directory");
         }
     }
 
@@ -913,6 +930,7 @@ mod tests {
                 "v1",
                 &records,
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("scan files");
@@ -955,6 +973,7 @@ mod tests {
                 "v1",
                 &records,
                 &AtomicBool::new(false),
+                Locale::default(),
                 |_| {},
             )
             .expect("scan files");

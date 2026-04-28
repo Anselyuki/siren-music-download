@@ -2,7 +2,7 @@
 
 > 前端架构、开发约定与验收基线的唯一主文档。
 >
-> 最后更新：2026-04-27
+> 最后更新：2026-04-28
 
 ## 1. 布局与主要组件
 
@@ -83,6 +83,12 @@ src/
     │   ├── player/                    # 播放、歌词与队列 controller / helper
     │   ├── download/                  # 下载任务与筛选 controller / formatter / guard
     │   └── shell/                     # 全局壳层状态、设置与舞台动效 controller
+    ├── i18n/
+    │   ├── index.ts                   # 项目侧 i18n 统一导出
+    │   ├── locale.svelte.ts           # 当前语言状态、初始化、切换与 runtime 同步
+    │   ├── formatters.ts              # byte、speed、duration 格式化
+    │   └── types.ts                   # Locale 类型、SUPPORTED_LOCALES、BOOTSTRAP_LOCALE_FALLBACK
+    ├── paraglide/                     # Paraglide 生成目录（.gitignore，不手写）
     ├── api.ts                         # 主 Tauri command bridge
     ├── settingsApi.ts                 # 设置面板专用 IPC bridge
     ├── cache.ts                       # 专辑/歌词/主题色缓存
@@ -363,7 +369,78 @@ cleanup 时 teardownAppRuntime(...)
 - `selectors.ts` 修正 `coverUrl` / `coverDeUrl` 的 fallback 顺序（`coverUrl` 为 `string` 非 nullable，`coverDeUrl` 为 `string | null`，应优先取 `coverDeUrl`）
 - 多处移除类型上不可能为 null/undefined 的冗余守卫（`artists || []`、`scrollTop ?? 0`、`outputFormat || state.format` 等）
 
-## 5. IPC 规则
+## 5. 国际化（i18n）
+
+### 语言来源
+
+`AppPreferences.locale` 是唯一语言来源。前端只镜像后端偏好，不读取 `navigator.language`，不使用 localStorage / IndexedDB 单独保存语言。
+
+语言状态链路：
+
+```text
+后端偏好文件 / 默认值
+  → get_preferences / set_preferences
+  → AppPreferences.locale
+  → 前端 localeState.current ($state)
+  → Paraglide runtime + document.documentElement.lang
+```
+
+### 前端翻译层
+
+前端使用 `@inlang/paraglide-js`，构建期生成类型安全 message 函数。
+
+| 文件或目录                      | 责任                                         |
+| ------------------------------- | -------------------------------------------- |
+| `messages/zh-CN.json`           | Paraglide 中文基准文案（当前 221 keys）      |
+| `messages/en-US.json`           | Paraglide 英文文案（当前 221 keys）          |
+| `src/lib/paraglide/`            | Paraglide 生成目录，不提交、不手写           |
+| `src/lib/i18n/locale.svelte.ts` | 当前语言状态、`applyBackendLocale()` 入口    |
+| `src/lib/i18n/formatters.ts`    | byte、speed、duration 格式化                 |
+| `src/lib/i18n/types.ts`         | `Locale` 类型、`SUPPORTED_LOCALES`、兜底常量 |
+| `src/lib/i18n/index.ts`         | 统一导出                                     |
+| `project.inlang/settings.json`  | Paraglide / inlang 配置                      |
+
+### 组件文案规则
+
+1. 新增前端用户可见文案必须通过 Paraglide message，不得硬编码中文或英文。
+2. 新增 `zh-CN` message 时必须同步新增 `en-US` message。
+3. 新增动态文案必须使用参数化模板，不做字符串拼接。
+4. 专辑名、歌曲名、艺术家名、歌词等上游内容数据不翻译。
+
+### 响应式更新模式
+
+Paraglide message 函数不会自动响应 Svelte 5 `$state` 变化。组件文案必须显式依赖 `localeState.current` 建立响应式依赖。
+
+高频、状态密集组件使用聚合 `$derived.by()` 模式：
+
+```svelte
+<script lang="ts">
+  import * as m from '$lib/paraglide/messages.js';
+  import { localeState } from '$lib/i18n';
+
+  const labels = $derived.by(() => {
+    void localeState.current;
+    return {
+      cancel: m.common_action_cancel(),
+      retry: m.common_action_retry(),
+    };
+  });
+</script>
+```
+
+低频、面板型组件可以使用 `{#key localeState.current}` 简化迁移。
+
+高频区域（播放器、歌曲列表、下载任务列表）禁止使用大范围 `{#key}` 重建。
+
+### 后端翻译层
+
+后端使用 Rust Fluent（`fluent-templates`），在 `src-tauri/locales/{locale}/main.ftl` 维护系统通知、偏好校验和后端用户错误文案（当前 48 message IDs / locale）。后端通过 `tr(locale, key)` / `tr_args(locale, key, args)` 获取翻译文案。
+
+### 格式化
+
+文件大小、下载速度、播放时长等项目级单位格式化在 `src/lib/i18n/formatters.ts` 中封装，内部基于 `Intl.NumberFormat`，跟随 `localeState.current` 切换。
+
+## 6. IPC 规则
 
 **UI 组件禁止直接调用 `invoke` 或 `listen`**。
 
@@ -401,7 +478,7 @@ cleanup 时 teardownAppRuntime(...)
 - UI 不应假设 `LogViewerRecord.details` 一定存在；当前契约下应按摘要 viewer 处理
 - 需要用户即时感知的运行时错误走 toast；需要回溯时由设置页日志 viewer 提供入口
 
-## 6. 交互模式
+## 7. 交互模式
 
 ### 顶部工具栏
 
@@ -460,7 +537,7 @@ App.svelte
 
 事件载荷统一是 `PlayerState`，包含当前曲目、播放状态、进度、队列、乱序/循环状态等。
 
-## 7. 内容与反馈规范
+## 8. 内容与反馈规范
 
 ### Tone
 
@@ -499,7 +576,7 @@ App.svelte
 - Loading 优先骨架，文字次之
 - 不写夸张进行态语句
 
-## 8. QA 基线
+## 9. QA 基线
 
 > 最近一次完整验证：2026-04-17
 
@@ -552,7 +629,7 @@ App.svelte
 3. 修改 `src/lib/design/` 下的 token、variant 或 motion 规则
 4. 推进 `features/library`、`features/player`、`features/download` 对运行时状态的接管
 
-## 9. 当前遗留问题
+## 10. 当前遗留问题
 
 1. `src/App.svelte` 仍持有大量业务状态、Tauri command 调用和事件订阅，尚未退化为真正的装配层
 2. `libraryStore`、`playerStore`、`downloadStore` 当前主要是骨架文件，尚未接管实际运行时状态
@@ -567,7 +644,7 @@ App.svelte
 3. 把专辑加载与舞台逻辑迁入 `library` 域
 4. 最后清理 `App.svelte` 中剩余的协调态和壳层 wiring
 
-## 10. 后续优化项
+## 11. 后续优化项
 
 1. 全面采用 Svelte 5 runes 风格的领域单例
 2. 把 Tauri IPC 收敛到领域层或网关层，避免 UI 组件直接 invoke/listen
@@ -575,10 +652,12 @@ App.svelte
 4. 明确 CSS 变量与样式系统的映射规则，减少任意值散落
 5. 对 Settings / DownloadTasks / PlayerDock 持续保持统一材质和反馈约束
 
-## 11. 相关文档
+## 12. 相关文档
 
 - [backend-api-contract.md](../reference/backend-api-contract.md)：后端类型、命令、事件的唯一契约来源
 - [backend-completed-phases.md](../history/backend-completed-phases.md)：后端已完成阶段
 - [backend-pending-phases.md](../history/backend-pending-phases.md)：后端待办阶段
 - [decisions.md](../history/decisions.md)：技术选型决策记录
+- [i18n-migration-plan.md](../guides/i18n-migration-plan.md)：i18n 迁移计划与阶段记录
+- [i18n-inventory.md](../guides/i18n-inventory.md)：i18n 文件级文案清单
 - [release-process.md](../process/release-process.md)：CI 与发布流程

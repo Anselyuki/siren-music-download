@@ -354,21 +354,23 @@
             <button
               type="button"
               class:active={logFileKind === 'session'}
+              aria-pressed={logFileKind === 'session'}
               onclick={() => void refreshLogs('session')}
               >{labels.logSession}</button
             >
             <button
               type="button"
               class:active={logFileKind === 'persistent'}
+              aria-pressed={logFileKind === 'persistent'}
               onclick={() => void refreshLogs('persistent')}
               >{labels.logPersistent}</button
             >
           </div>
         </div>
         <p class="settings-log-status">
-          session: {logFileStatus?.hasSessionLog
+          {labels.logSession}: {logFileStatus?.hasSessionLog
             ? labels.logStatusAvailable
-            : labels.logStatusNone} · persistent: {logFileStatus?.hasPersistentLog
+            : labels.logStatusNone} · {labels.logPersistent}: {logFileStatus?.hasPersistentLog
             ? labels.logStatusAvailable
             : labels.logStatusNone}
         </p>

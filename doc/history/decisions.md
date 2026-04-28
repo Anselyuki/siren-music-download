@@ -86,3 +86,38 @@
 - UI 仅绑定服务层暴露的响应式状态
 
 这样在调整 UI 结构时，不用担心丢掉底层的事件监听。
+
+## 决策 7：前后端异步解耦 i18n 方案
+
+**背景**：项目原始 UI 全部硬编码中文，需要支持中英双语切换。前端是 Svelte 5 + Vite（非 SvelteKit），后端是 Rust + Tauri 2。
+
+**考量**：
+
+- 前端可选方案：`@inlang/paraglide-js`、`svelte-i18n`、`i18next`、自研 runtime
+- 后端可选方案：Rust Fluent（`fluent-templates`）、自研静态映射表、零依赖 match/format
+- 两端需要共享语言来源，但不应共享同一套文案资源
+
+**结论**：
+
+1. 前端采用 `@inlang/paraglide-js`，构建期生成类型安全 message 函数，编译期捕获缺 key、参数类型错误和未使用文案
+2. 后端采用 `fluent-templates`，使用 Fluent `.ftl` 文件管理系统通知、偏好校验和用户错误文案
+3. 两端异步解耦实现：各自独立落地，不互相调用运行时，不等待对方文案迁移完成
+4. 只通过 `AppPreferences.locale` 契约同步当前语言，不共享同一套文案资源
+
+**选择 Paraglide 的原因**：
+
+- 与 Vite 项目贴合，构建期生成，不需要运行时字符串查找
+- TypeScript 参数类型安全，比 `t('key')` 字符串方式更可靠
+- 本项目不使用 SvelteKit，Paraglide 纯 Vite 模式足够；`svelte-i18n` 和 `i18next` 的运行时开销不必要
+
+**选择 Fluent 的原因**：
+
+- 避免先做静态映射表、后迁移 `.ftl` 的二次成本
+- Fluent 语法支持复数、参数和条件选择，适合通知和错误场景
+- `fluent-templates` 支持编译期嵌入资源，部署时不需要额外文件
+
+**Svelte 5 响应式集成约束**：
+
+- Paraglide runtime 语言切换不会自动触发 Svelte 5 组件重新渲染
+- 必须通过项目侧 `localeState.current`（`$state`）显式建立响应式依赖
+- 高频组件使用聚合 `$derived.by()` 模式，低频面板允许 `{#key localeState.current}` 简化迁移

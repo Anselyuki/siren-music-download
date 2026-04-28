@@ -6,6 +6,8 @@
 > 首轮语言：`zh-CN`（基准）、`en-US`
 >
 > 最后更新：2026-04-28
+>
+> 当前规模：前端 Paraglide 231 keys / locale，后端 Fluent 48 message IDs / locale
 
 ## 前端文案清单
 
@@ -15,7 +17,7 @@
 | `src/lib/components/app/TopToolbar.svelte`            | shell    | title / aria             | 3        | done |
 | `src/lib/components/app/AlbumWorkspaceContent.svelte` | library  | static                   | 2        | done |
 | `src/lib/components/app/AlbumDetailSkeleton.svelte`   | library  | static                   | 1        | done |
-| `src/lib/components/app/AlbumSidebar.svelte`          | library  | static / dynamic / aria  | 14       | done |
+| `src/lib/components/app/AlbumSidebar.svelte`          | library  | static / dynamic / aria  | 13       | done |
 | `src/lib/components/app/AlbumDetailPanel.svelte`      | library  | static / dynamic         | 12       | done |
 | `src/lib/components/SongRow.svelte`                   | library  | aria / title / dynamic   | 8        | done |
 | `src/lib/components/AudioPlayer.svelte`               | player   | aria / dynamic           | 21       | done |
@@ -33,19 +35,19 @@
 
 ## 后端文案清单
 
-| 文件                                        | 业务域       | 主要类型 | 估算条数 | 状态    |
-| ------------------------------------------- | ------------ | -------- | -------- | ------- |
-| `src-tauri/src/notification/mod.rs`         | notification | backend  | 5        | done    |
-| `src-tauri/src/notification/macos.rs`       | notification | backend  | 2        | done    |
-| `src-tauri/src/notification/desktop.rs`     | notification | backend  | 2        | done    |
-| `src-tauri/src/preferences.rs`              | preferences  | backend  | 22       | done    |
-| `src-tauri/src/commands/preferences.rs`     | preferences  | backend  | 3        | done    |
-| `src-tauri/src/app_state.rs`                | app_state    | backend  | 1        | done    |
-| `src-tauri/src/download_session.rs`         | download     | backend  | 4        | done    |
-| `src-tauri/src/local_inventory.rs`          | inventory    | backend  | 5        | done    |
-| `src-tauri/src/search/index.rs`             | search       | backend  | 2        | done    |
-| `src-tauri/src/search/service.rs`           | search       | backend  | 3        | done    |
-| `crates/siren-core/src/download/service.rs` | download     | backend  | 5        | 不改    |
+| 文件                                        | 业务域       | 主要类型 | 估算条数 | 状态 |
+| ------------------------------------------- | ------------ | -------- | -------- | ---- |
+| `src-tauri/src/notification/mod.rs`         | notification | backend  | 5        | done |
+| `src-tauri/src/notification/macos.rs`       | notification | backend  | 2        | done |
+| `src-tauri/src/notification/desktop.rs`     | notification | backend  | 2        | done |
+| `src-tauri/src/preferences.rs`              | preferences  | backend  | 22       | done |
+| `src-tauri/src/commands/preferences.rs`     | preferences  | backend  | 3        | done |
+| `src-tauri/src/app_state.rs`                | app_state    | backend  | 1        | done |
+| `src-tauri/src/download_session.rs`         | download     | backend  | 4        | done |
+| `src-tauri/src/local_inventory.rs`          | inventory    | backend  | 5        | done |
+| `src-tauri/src/search/index.rs`             | search       | backend  | 2        | done |
+| `src-tauri/src/search/service.rs`           | search       | backend  | 3        | done |
+| `crates/siren-core/src/download/service.rs` | download     | backend  | 5        | 不改 |
 
 ## 不翻译的内容
 
@@ -53,6 +55,7 @@
 - 日志 key、内部错误 key、Rust / TS 类型名、Tauri command 名称
 - rustdoc、开发文档、README
 - 构建产物安装包元信息
+- 搜索栏筛选按钮的 "ALL" 标签（固定品牌文案，所有语言下统一显示大写 `ALL`）
 
 ## Fallback 策略
 

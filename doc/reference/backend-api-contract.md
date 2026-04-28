@@ -405,6 +405,22 @@
 - `notifyOnDownloadComplete: boolean`
 - `notifyOnPlaybackChange: boolean`
 - `logLevel: LogLevel`
+- `locale: Locale`
+
+### `Locale`
+
+枚举值：
+
+- `zh-CN`：简体中文（默认）
+- `en-US`：英文
+
+语义：
+
+- `AppPreferences.locale` 是全应用唯一语言来源
+- 后端负责默认值（`zh-CN`）、持久化、校验和旧偏好迁移
+- 前端只镜像后端偏好，不读取 `navigator.language` 或浏览器本地存储
+- 用户切换语言通过 `set_preferences` 提交完整偏好，成功返回后前端以 `AppPreferences.locale` 更新 UI
+- 后端系统通知、偏好校验错误和用户可见 command 错误按当前 `locale` 输出本地化文案
 
 ### `NotificationPermissionState`
 

@@ -43,6 +43,8 @@ download-session-parse-failed = 下载历史已损坏，已回退为空状态
 download-session-schema-incompatible = 下载历史版本不兼容，已回退为空状态
 download-session-dir-invalid = 下载 session 目录无效
 download-session-save-failed = 下载历史保存失败
+download-session-interrupted-cancelled = 因应用重启而取消
+download-session-interrupted-failed = 因应用重启而中断
 
 ## 本地库存
 
@@ -57,3 +59,10 @@ inventory-read-audio-failed = 读取音频文件失败
 search-query-empty = 搜索关键词不能为空
 search-query-too-long = 搜索关键词长度不能超过 128 个字符
 search-index-build-failed = 搜索索引构建失败
+
+## 播放器
+
+player-no-active-track = 当前没有正在播放的曲目
+player-still-loading = 播放正在加载中
+player-no-next-track = 没有下一首可播放的曲目
+player-no-previous-track = 没有上一首可播放的曲目

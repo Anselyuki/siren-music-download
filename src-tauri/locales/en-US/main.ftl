@@ -43,6 +43,8 @@ download-session-parse-failed = Download history is corrupted, reverted to empty
 download-session-schema-incompatible = Download history version is incompatible, reverted to empty state
 download-session-dir-invalid = Download session directory is invalid
 download-session-save-failed = Failed to save download history
+download-session-interrupted-cancelled = Interrupted by app restart
+download-session-interrupted-failed = Download interrupted by app restart
 
 ## Local inventory
 
@@ -57,3 +59,10 @@ inventory-read-audio-failed = Failed to read audio file
 search-query-empty = Search query cannot be empty
 search-query-too-long = Search query cannot exceed 128 characters
 search-index-build-failed = Failed to build search index
+
+## Player
+
+player-no-active-track = No active track
+player-still-loading = Playback is still loading
+player-no-next-track = No next track available
+player-no-previous-track = No previous track available

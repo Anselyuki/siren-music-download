@@ -1,4 +1,5 @@
 use crate::logging::{LogCenter, LogLevel, LogPayload};
+use crate::preferences::Locale;
 use serde::{Deserialize, Serialize};
 use siren_core::download::model::{
     DownloadErrorCode, DownloadErrorInfo, DownloadJobSnapshot, DownloadJobStatus,
@@ -44,7 +45,11 @@ impl DownloadSessionStore {
         }
     }
 
-    pub(crate) fn load(&self, log_center: Option<&LogCenter>) -> LoadedDownloadSession {
+    pub(crate) fn load(
+        &self,
+        log_center: Option<&LogCenter>,
+        locale: Locale,
+    ) -> LoadedDownloadSession {
         if !self.path.exists() {
             return LoadedDownloadSession {
                 snapshot: DownloadManagerSnapshot::default(),
@@ -59,10 +64,7 @@ impl DownloadSessionStore {
                     log_center,
                     "download_session.read_failed",
                     "Failed to read persisted download session",
-                    &crate::i18n::tr(
-                        crate::preferences::Locale::default(),
-                        "download-session-read-failed",
-                    ),
+                    &crate::i18n::tr(locale, "download-session-read-failed"),
                     error.to_string(),
                 );
                 return LoadedDownloadSession {
@@ -86,10 +88,7 @@ impl DownloadSessionStore {
                     log_center,
                     "download_session.parse_failed",
                     "Failed to parse persisted download session",
-                    &crate::i18n::tr(
-                        crate::preferences::Locale::default(),
-                        "download-session-parse-failed",
-                    ),
+                    &crate::i18n::tr(locale, "download-session-parse-failed"),
                     error.to_string(),
                 );
                 return LoadedDownloadSession {
@@ -104,10 +103,7 @@ impl DownloadSessionStore {
                 log_center,
                 "download_session.unsupported_schema",
                 "Unsupported persisted download session schema version",
-                &crate::i18n::tr(
-                    crate::preferences::Locale::default(),
-                    "download-session-schema-incompatible",
-                ),
+                &crate::i18n::tr(locale, "download-session-schema-incompatible"),
                 format!(
                     "expected schema {}, got {}",
                     DOWNLOAD_SESSION_SCHEMA_VERSION, persisted.schema_version
@@ -120,7 +116,7 @@ impl DownloadSessionStore {
         }
 
         let (normalized_snapshot, normalized_changed) =
-            normalize_restored_snapshot(persisted.manager);
+            normalize_restored_snapshot(persisted.manager, locale);
         let (retained_snapshot, retention_changed) = apply_retention(normalized_snapshot);
 
         LoadedDownloadSession {
@@ -129,15 +125,17 @@ impl DownloadSessionStore {
         }
     }
 
-    pub(crate) fn save(&self, snapshot: &DownloadManagerSnapshot) -> Result<(), String> {
+    pub(crate) fn save(
+        &self,
+        snapshot: &DownloadManagerSnapshot,
+        locale: Locale,
+    ) -> Result<(), String> {
         let _guard = self.save_lock.lock().map_err(|error| error.to_string())?;
 
-        let parent = self.path.parent().ok_or_else(|| {
-            crate::i18n::tr(
-                crate::preferences::Locale::default(),
-                "download-session-dir-invalid",
-            )
-        })?;
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| crate::i18n::tr(locale, "download-session-dir-invalid"))?;
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
 
         let persisted = PersistedDownloadSession {
@@ -161,8 +159,11 @@ impl DownloadSessionStore {
     }
 }
 
+const INTERRUPTED_SENTINEL: &str = "interrupted-by-restart";
+
 fn normalize_restored_snapshot(
     snapshot: DownloadManagerSnapshot,
+    locale: Locale,
 ) -> (DownloadManagerSnapshot, bool) {
     let recovery_finished_at = iso_timestamp_now();
     let mut changed = snapshot.active_job_id.is_some() || !snapshot.queued_job_ids.is_empty();
@@ -170,7 +171,7 @@ fn normalize_restored_snapshot(
         .jobs
         .into_iter()
         .map(|job| {
-            let (job, job_changed) = normalize_restored_job(job, &recovery_finished_at);
+            let (job, job_changed) = normalize_restored_job(job, &recovery_finished_at, locale);
             changed |= job_changed;
             job
         })
@@ -189,14 +190,18 @@ fn normalize_restored_snapshot(
 fn normalize_restored_job(
     mut job: DownloadJobSnapshot,
     recovery_finished_at: &str,
+    locale: Locale,
 ) -> (DownloadJobSnapshot, bool) {
-    job.tasks = job.tasks.into_iter().map(normalize_restored_task).collect();
+    job.tasks = job
+        .tasks
+        .into_iter()
+        .map(|task| normalize_restored_task(task, locale))
+        .collect();
 
     let mut changed = job.tasks.iter().any(|task| {
-        task.error.as_ref().is_some_and(|error| {
-            error.message == "Interrupted by app restart"
-                || error.message == "Download interrupted by app restart"
-        })
+        task.error
+            .as_ref()
+            .is_some_and(|error| error.details.as_deref() == Some(INTERRUPTED_SENTINEL))
     });
     let previous_status = job.status;
     let previous_finished_at = job.finished_at.clone();
@@ -229,18 +234,18 @@ fn normalize_restored_job(
     (job, changed)
 }
 
-fn normalize_restored_task(mut task: DownloadTaskSnapshot) -> DownloadTaskSnapshot {
+fn normalize_restored_task(mut task: DownloadTaskSnapshot, locale: Locale) -> DownloadTaskSnapshot {
     match task.status {
         DownloadTaskStatus::Queued | DownloadTaskStatus::Preparing => {
             task.status = DownloadTaskStatus::Cancelled;
             if task.error.is_none() {
-                task.error = Some(interrupted_cancelled_error());
+                task.error = Some(interrupted_cancelled_error(locale));
             }
         }
         DownloadTaskStatus::Downloading | DownloadTaskStatus::Writing => {
             task.status = DownloadTaskStatus::Failed;
             if task.error.is_none() {
-                task.error = Some(interrupted_failed_error());
+                task.error = Some(interrupted_failed_error(locale));
             }
         }
         DownloadTaskStatus::Completed
@@ -335,21 +340,21 @@ fn is_terminal_job_status(status: DownloadJobStatus) -> bool {
     )
 }
 
-fn interrupted_cancelled_error() -> DownloadErrorInfo {
+fn interrupted_cancelled_error(locale: Locale) -> DownloadErrorInfo {
     DownloadErrorInfo {
         code: DownloadErrorCode::Cancelled,
-        message: "Interrupted by app restart".to_string(),
+        message: crate::i18n::tr(locale, "download-session-interrupted-cancelled"),
         retryable: true,
-        details: None,
+        details: Some(INTERRUPTED_SENTINEL.to_string()),
     }
 }
 
-fn interrupted_failed_error() -> DownloadErrorInfo {
+fn interrupted_failed_error(locale: Locale) -> DownloadErrorInfo {
     DownloadErrorInfo {
         code: DownloadErrorCode::Internal,
-        message: "Download interrupted by app restart".to_string(),
+        message: crate::i18n::tr(locale, "download-session-interrupted-failed"),
         retryable: true,
-        details: None,
+        details: Some(INTERRUPTED_SENTINEL.to_string()),
     }
 }
 
@@ -378,6 +383,7 @@ fn iso_timestamp_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::{apply_retention, normalize_restored_snapshot, DownloadSessionStore};
+    use crate::preferences::Locale;
     use siren_core::audio::OutputFormat;
     use siren_core::download::model::{
         DownloadJobKind, DownloadJobSnapshot, DownloadJobStatus, DownloadManagerSnapshot,
@@ -440,7 +446,7 @@ mod tests {
         let dir = tempdir().expect("temp dir should exist");
         let store = DownloadSessionStore::new(dir.path().to_path_buf());
 
-        let snapshot = store.load(None).snapshot;
+        let snapshot = store.load(None, Locale::default()).snapshot;
 
         assert!(snapshot.jobs.is_empty());
         assert!(snapshot.queued_job_ids.is_empty());
@@ -454,7 +460,7 @@ mod tests {
         std::fs::write(dir.path().join("download_session.json"), b"not json")
             .expect("fixture should be written");
 
-        let snapshot = store.load(None).snapshot;
+        let snapshot = store.load(None, Locale::default()).snapshot;
 
         assert!(snapshot.jobs.is_empty());
     }
@@ -473,8 +479,10 @@ mod tests {
             queued_job_ids: Vec::new(),
         };
 
-        store.save(&snapshot).expect("snapshot should save");
-        let loaded = store.load(None).snapshot;
+        store
+            .save(&snapshot, Locale::default())
+            .expect("snapshot should save");
+        let loaded = store.load(None, Locale::default()).snapshot;
 
         assert_eq!(loaded.jobs.len(), 1);
         assert_eq!(loaded.jobs[0].id, "job-1");
@@ -507,11 +515,13 @@ mod tests {
             queued_job_ids: Vec::new(),
         };
 
-        store.save(&first).expect("first snapshot should save");
         store
-            .save(&second)
+            .save(&first, Locale::default())
+            .expect("first snapshot should save");
+        store
+            .save(&second, Locale::default())
             .expect("second snapshot should replace first");
-        let loaded = store.load(None).snapshot;
+        let loaded = store.load(None, Locale::default()).snapshot;
 
         assert_eq!(loaded.jobs.len(), 1);
         assert_eq!(loaded.jobs[0].id, "job-2");
@@ -538,7 +548,7 @@ mod tests {
                         queued_job_ids: Vec::new(),
                     };
                     barrier.wait();
-                    store.save(&snapshot)
+                    store.save(&snapshot, Locale::default())
                 })
             })
             .collect();
@@ -551,7 +561,7 @@ mod tests {
                 .expect("concurrent save should succeed");
         }
 
-        let loaded = store.load(None).snapshot;
+        let loaded = store.load(None, Locale::default()).snapshot;
         assert_eq!(loaded.jobs.len(), 1);
         assert!(matches!(
             loaded.jobs[0].status,
@@ -593,7 +603,7 @@ mod tests {
             queued_job_ids: vec!["job-1".to_string()],
         };
 
-        let normalized = normalize_restored_snapshot(snapshot).0;
+        let normalized = normalize_restored_snapshot(snapshot, Locale::default()).0;
 
         assert!(normalized.active_job_id.is_none());
         assert!(normalized.queued_job_ids.is_empty());

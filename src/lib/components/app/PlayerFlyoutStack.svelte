@@ -142,6 +142,13 @@
                 <button
                   type="button"
                   class={`player-playlist-item${entry.cid === props.song?.cid ? ' active' : ''}`}
+                  aria-label={m.player_queue_item_aria({
+                    index: index + 1,
+                    name: entry.name,
+                  })}
+                  aria-current={entry.cid === props.song?.cid
+                    ? 'true'
+                    : undefined}
                   onclick={() => {
                     void props.onPlayQueueEntry(
                       entry,

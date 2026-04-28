@@ -1,3 +1,4 @@
+use crate::preferences::Locale;
 use crate::search::snapshot::{inventory_index_dir, LibrarySearchSnapshot};
 use anyhow::{Context, Result};
 use siren_core::{
@@ -355,19 +356,14 @@ pub(crate) fn sanitize_search_request(
     request: SearchLibraryRequest,
     max_limit: usize,
     max_offset: usize,
+    locale: Locale,
 ) -> Result<SanitizedSearchRequest> {
     let query = request.query.trim().to_string();
     if query.is_empty() {
-        anyhow::bail!(crate::i18n::tr(
-            crate::preferences::Locale::default(),
-            "search-query-empty"
-        ));
+        anyhow::bail!(crate::i18n::tr(locale, "search-query-empty"));
     }
     if query.chars().count() > siren_core::SEARCH_LIBRARY_QUERY_MAX_LENGTH {
-        anyhow::bail!(crate::i18n::tr(
-            crate::preferences::Locale::default(),
-            "search-query-too-long"
-        ));
+        anyhow::bail!(crate::i18n::tr(locale, "search-query-too-long"));
     }
 
     Ok(SanitizedSearchRequest {
@@ -816,6 +812,7 @@ fn scope_kind_value(scope: LibrarySearchScope) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::{sanitize_search_request, LibrarySearchIndex};
+    use crate::preferences::Locale;
     use crate::search::snapshot::LibrarySearchSnapshot;
     use crate::search::snapshot::{LibrarySearchAlbumRecord, LibrarySearchSongRecord};
     use tempfile::tempdir;
@@ -912,7 +909,11 @@ mod tests {
             limit: None,
             offset: None,
         };
-        assert!(sanitize_search_request(request, 50, 500).is_err());
+        let error = match sanitize_search_request(request, 50, 500, Locale::EnUS) {
+            Ok(_) => panic!("empty query should fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "Search query cannot be empty");
     }
 
     #[test]
@@ -923,7 +924,8 @@ mod tests {
             limit: Some(999),
             offset: Some(999),
         };
-        let sanitized = sanitize_search_request(request, 50, 500).expect("sanitized");
+        let sanitized =
+            sanitize_search_request(request, 50, 500, Locale::default()).expect("sanitized");
         assert_eq!(sanitized.limit, 50);
         assert_eq!(sanitized.offset, 500);
     }
@@ -936,7 +938,8 @@ mod tests {
             limit: None,
             offset: None,
         };
-        let sanitized = sanitize_search_request(request, 50, 500).expect("sanitized");
+        let sanitized =
+            sanitize_search_request(request, 50, 500, Locale::default()).expect("sanitized");
         assert_eq!(sanitized.query, "artist:(alpha) \"beta\"");
     }
 
@@ -953,6 +956,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
 
@@ -976,6 +980,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
 
@@ -1002,6 +1007,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
         let (title_items, title_total) = index.search(&title_request).expect("search");
@@ -1020,6 +1026,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
         let (belong_items, belong_total) = index.search(&belong_request).expect("search");
@@ -1043,6 +1050,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
 
@@ -1069,6 +1077,7 @@ mod tests {
             },
             50,
             500,
+            Locale::default(),
         )
         .expect("request");
 

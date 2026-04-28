@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::logging::{LogLevel, LogPayload};
+use crate::preferences::Locale;
 use crate::search::index::{sanitize_search_request, LibrarySearchIndex};
 use crate::search::snapshot::{
     build_library_search_snapshot, load_library_search_snapshot, save_library_search_snapshot,
@@ -131,10 +132,15 @@ impl LibrarySearchService {
     pub(crate) async fn search(
         &self,
         request: SearchLibraryRequest,
+        locale: Locale,
     ) -> Result<SearchLibraryResponse, String> {
-        let sanitized =
-            sanitize_search_request(request, SEARCH_LIBRARY_MAX_LIMIT, SEARCH_LIBRARY_MAX_OFFSET)
-                .map_err(|error| error.to_string())?;
+        let sanitized = sanitize_search_request(
+            request,
+            SEARCH_LIBRARY_MAX_LIMIT,
+            SEARCH_LIBRARY_MAX_OFFSET,
+            locale,
+        )
+        .map_err(|error| error.to_string())?;
 
         let (index_state, active_index) = {
             let state = self.state.lock().await;
@@ -196,7 +202,7 @@ impl LibrarySearchService {
                             "Failed to build search snapshot",
                         )
                         .user_message(crate::i18n::tr(
-                            crate::preferences::Locale::default(),
+                            state.preferences().locale,
                             "search-index-build-failed",
                         ))
                         .details(error.to_string()),
@@ -231,7 +237,7 @@ impl LibrarySearchService {
                             "Failed to build search index",
                         )
                         .user_message(crate::i18n::tr(
-                            crate::preferences::Locale::default(),
+                            state.preferences().locale,
                             "search-index-build-failed",
                         ))
                         .details(error.to_string()),
@@ -254,7 +260,7 @@ impl LibrarySearchService {
                             "Search index build worker failed",
                         )
                         .user_message(crate::i18n::tr(
-                            crate::preferences::Locale::default(),
+                            state.preferences().locale,
                             "search-index-build-failed",
                         ))
                         .details(error.to_string()),
@@ -291,6 +297,7 @@ impl LibrarySearchService {
 #[cfg(test)]
 mod tests {
     use super::LibrarySearchService;
+    use crate::preferences::Locale;
     use crate::search::index::LibrarySearchIndex;
     use crate::search::snapshot::LibrarySearchSnapshot;
     use crate::search::snapshot::{LibrarySearchAlbumRecord, LibrarySearchSongRecord};
@@ -354,12 +361,15 @@ mod tests {
         let generation = service.start_rebuild(&inventory_snapshot("inv-1")).await;
         assert_eq!(generation, 1);
         let response = service
-            .search(siren_core::SearchLibraryRequest {
-                query: "alpha".to_string(),
-                scope: siren_core::LibrarySearchScope::All,
-                limit: None,
-                offset: None,
-            })
+            .search(
+                siren_core::SearchLibraryRequest {
+                    query: "alpha".to_string(),
+                    scope: siren_core::LibrarySearchScope::All,
+                    limit: None,
+                    offset: None,
+                },
+                Locale::default(),
+            )
             .await
             .expect("response");
         assert_eq!(response.index_state, LibraryIndexState::Building);
@@ -377,12 +387,15 @@ mod tests {
         assert!(service.publish_rebuild(generation, &snapshot, index).await);
 
         let response = service
-            .search(siren_core::SearchLibraryRequest {
-                query: "alpha".to_string(),
-                scope: siren_core::LibrarySearchScope::All,
-                limit: None,
-                offset: None,
-            })
+            .search(
+                siren_core::SearchLibraryRequest {
+                    query: "alpha".to_string(),
+                    scope: siren_core::LibrarySearchScope::All,
+                    limit: None,
+                    offset: None,
+                },
+                Locale::default(),
+            )
             .await
             .expect("response");
         assert_eq!(response.index_state, LibraryIndexState::Ready);
@@ -410,12 +423,15 @@ mod tests {
             .await;
 
         let response = service
-            .search(siren_core::SearchLibraryRequest {
-                query: "alpha".to_string(),
-                scope: siren_core::LibrarySearchScope::All,
-                limit: None,
-                offset: None,
-            })
+            .search(
+                siren_core::SearchLibraryRequest {
+                    query: "alpha".to_string(),
+                    scope: siren_core::LibrarySearchScope::All,
+                    limit: None,
+                    offset: None,
+                },
+                Locale::default(),
+            )
             .await
             .expect("response");
         assert_eq!(response.index_state, LibraryIndexState::Stale);
