@@ -10,6 +10,8 @@ interface OpenSideSheetOptions {
 type SettingsSheetComponent = typeof SettingsSheet;
 type DownloadTasksSheetComponent = typeof DownloadTasksSheet;
 
+export type AppView = 'home' | 'library';
+
 let settingsOpen = $state(false);
 let downloadPanelOpen = $state(false);
 let SettingsSheetView = $state<SettingsSheetComponent | null>(null);
@@ -17,6 +19,7 @@ let DownloadTasksSheetView = $state<DownloadTasksSheetComponent | null>(null);
 let settingsSheetLoader = $state<Promise<SettingsSheetComponent> | null>(null);
 let downloadTasksSheetLoader =
   $state<Promise<DownloadTasksSheetComponent> | null>(null);
+let currentView = $state<AppView>('home');
 let sideSheetRequestSeq = 0;
 let initialized = false;
 
@@ -28,6 +31,7 @@ function init() {
 function dispose() {
   settingsOpen = false;
   downloadPanelOpen = false;
+  currentView = 'home';
   sideSheetRequestSeq = 0;
   initialized = false;
 }
@@ -163,6 +167,18 @@ export const shellStore = {
   },
   set downloadPanelOpen(value: boolean) {
     downloadPanelOpen = value;
+  },
+  get currentView() {
+    return currentView;
+  },
+  set currentView(value: AppView) {
+    currentView = value;
+  },
+  navigateToHome() {
+    currentView = 'home';
+  },
+  navigateToLibrary() {
+    currentView = 'library';
   },
   get SettingsSheetView() {
     return SettingsSheetView;
