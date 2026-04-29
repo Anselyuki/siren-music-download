@@ -46,6 +46,7 @@ mod notification;
 mod player;
 mod preferences;
 mod search;
+mod tag_registry;
 mod theme;
 
 /// 启动 belong 预热后台任务。
