@@ -2,7 +2,7 @@
 
 > 前端架构、开发约定与验收基线的唯一主文档。
 >
-> 最后更新：2026-04-28
+> 最后更新：2026-04-29
 
 ## 1. 布局与主要组件
 
@@ -53,6 +53,8 @@ src/
 ├── App.svelte                         # 当前前端根装配层
 ├── main.ts                            # 前端入口
 ├── app.css                            # 全局变量、基础样式、兼容性覆盖
+├── assets/
+│   └── fonts/                         # HarmonyOS Sans SC woff2 字体文件（6 字重）
 └── lib/
     ├── components/
     │   ├── AlbumCard.svelte           # 专辑卡片
@@ -77,6 +79,8 @@ src/
     │   ├── tokens.ts                  # 设计 token
     │   ├── variants.ts                # 视觉变体
     │   └── motion.ts                  # 动效参数
+    ├── styles/
+    │   └── fonts.css                  # HarmonyOS Sans SC @font-face 声明
     ├── features/
     │   ├── env/store.svelte.ts        # 只读环境状态
     │   ├── library/                   # 专辑与搜索 controller / selector / helper
@@ -135,6 +139,60 @@ env → library → player → download → shell
 - `surface.dock`
 - `surface.flyout`
 - `surface.state`
+
+### 字体方案
+
+全局字体使用 HarmonyOS Sans SC，通过本地 `@font-face` 声明加载，不依赖外部 CDN。
+
+**字体文件**
+
+6 个字重的 woff2 全量字体文件位于 `src/assets/fonts/`，由 `src/lib/styles/fonts.css` 声明 `@font-face`，在 `src/app.css` 顶部通过 `@import './lib/styles/fonts.css'` 引入。
+
+| 字重    | 文件                            | 对应 CSS `font-weight` |
+| ------- | ------------------------------- | ---------------------- |
+| Thin    | HarmonyOS-Sans-SC-Thin.woff2    | 100                    |
+| Light   | HarmonyOS-Sans-SC-Light.woff2   | 300                    |
+| Regular | HarmonyOS-Sans-SC-Regular.woff2 | 400                    |
+| Medium  | HarmonyOS-Sans-SC-Medium.woff2  | 500                    |
+| Bold    | HarmonyOS-Sans-SC-Bold.woff2    | 700                    |
+| Black   | HarmonyOS-Sans-SC-Black.woff2   | 900                    |
+
+所有 `@font-face` 均声明 `font-display: swap`，确保字体加载期间文本可见。
+
+**CSS 变量**
+
+字体通过 `:root` 级 CSS 变量统一管理，组件不直接硬编码 `font-family`：
+
+| 变量             | 值                                                    | 用途           |
+| ---------------- | ----------------------------------------------------- | -------------- |
+| `--font-sans`    | `'HarmonyOS Sans SC', sans-serif`                     | 基础无衬线栈   |
+| `--font-display` | `var(--font-sans)`                                    | 标题与展示文案 |
+| `--font-body`    | `var(--font-sans)`                                    | 正文与 UI 文案 |
+| `--font-mono`    | `ui-monospace, 'SF Mono', 'Cascadia Code', monospace` | 等宽场景       |
+
+`body` 的 `font-family` 绑定 `var(--font-body)`。`--font-display` 和 `--font-body` 当前指向同一字体栈，保留为独立变量以便后续按需分离。
+
+**字重使用约定**
+
+当前组件中实际使用的字重分布：
+
+| 字重 | 语义                              | 典型场景                              |
+| ---- | --------------------------------- | ------------------------------------- |
+| 400  | 正文                              | 歌词行、描述文案                      |
+| 500  | 次强调                            | 曲目名、卡片标题                      |
+| 600  | 强调                              | 面板标题、控件标签、播放器副标题      |
+| 700  | 标题 / 高亮                       | 页面标题、专辑标题、badge、活跃歌词行 |
+| 800  | 侧栏品牌标识                      | 侧栏 logo 文字                        |
+| 900  | 未常规使用，仅作为 Black 字重储备 | —                                     |
+
+100（Thin）和 300（Light）当前未在组件中使用，作为字重储备保留。
+
+**扩展规则**
+
+1. 新增组件的 `font-family` 统一通过 `--font-body` 或 `--font-display` 变量引用，不直接写字体名
+2. 如需引入新字体族（如衬线体、手写体），新增独立 CSS 变量并在 `:root` 中声明，不修改现有变量语义
+3. 等宽场景（代码片段、日志 viewer 等）使用 `--font-mono`
+4. 字体文件随应用打包分发，不引入外部 CDN 依赖
 
 ### Apple 化边界
 
