@@ -382,11 +382,11 @@ body {
 }
 
 /* 主容器 */
-.container {
+.app-shell {
   display: grid;
   grid-template-columns: 248px 1fr;
+  width: 100vw;
   height: 100vh;
-  min-width: 1120px;
   gap: 0;
   background: var(--bg-primary);
 }
@@ -853,7 +853,7 @@ body {
   user-select: none;
 }
 
-.container.macos-overlay .sidebar .home-nav-button {
+.app-shell.macos-overlay .sidebar .home-nav-button {
   margin-top: 60px;
 }
 

@@ -22,7 +22,7 @@
 
 <StatusToastHost />
 
-<div class="container" class:macos-overlay={runtime.isMacOS}>
+<div class="app-shell" class:macos-overlay={runtime.isMacOS}>
   <AlbumSidebarContainer
     isMacOS={runtime.isMacOS}
     currentView={runtime.currentView}
