@@ -3,6 +3,8 @@ import type {
   SeriesGroup,
   HistoryEntry,
   HomepageStatus,
+  TagDimension,
+  TagGroup,
 } from '$lib/types';
 import { homeStore } from './store.svelte';
 
@@ -12,6 +14,8 @@ interface HomeControllerDeps {
   getRecentHistory: (limit: number) => Promise<HistoryEntry[]>;
   getHomepageStatus: () => Promise<HomepageStatus>;
   clearListeningHistory: () => Promise<number>;
+  getTagDimensions: () => Promise<TagDimension[]>;
+  getAlbumsByTagDimension: (dimensionKey: string) => Promise<TagGroup[]>;
   notifyError: (message: string) => void;
 }
 
@@ -48,6 +52,7 @@ export function createHomeController(deps: HomeControllerDeps) {
       deps.getAlbumsBySeriesGroup(),
       deps.getRecentHistory(RECENT_HISTORY_LIMIT),
       deps.getHomepageStatus(),
+      deps.getTagDimensions(),
     ]);
 
     if (requestSeq !== loadRequestSeq) return;
@@ -76,8 +81,42 @@ export function createHomeController(deps: HomeControllerDeps) {
       homeStore.status = results[3].value;
     }
 
+    if (results[4].status === 'fulfilled') {
+      homeStore.tagDimensions = results[4].value;
+      if (
+        results[4].value.length > 0 &&
+        homeStore.selectedDimensionKey === null
+      ) {
+        homeStore.selectedDimensionKey = results[4].value[0].key;
+      }
+    }
+
+    if (results[4].status === 'fulfilled' && results[4].value.length > 0) {
+      void loadTagGroups(results[4].value[0].key);
+    }
+
     homeStore.loading = false;
     homeStore.lastLoadedAt = Date.now();
+  }
+
+  async function loadTagGroups(dimensionKey: string) {
+    const requestSeq = loadRequestSeq;
+    try {
+      const groups = await deps.getAlbumsByTagDimension(dimensionKey);
+      if (requestSeq !== loadRequestSeq) return;
+      homeStore.tagGroups = groups;
+    } catch (e: unknown) {
+      deps.notifyError(
+        `加载标签分组失败: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
+  async function selectDimension(dimensionKey: string) {
+    if (homeStore.selectedDimensionKey === dimensionKey) return;
+    homeStore.selectedDimensionKey = dimensionKey;
+    homeStore.tagGroups = [];
+    await loadTagGroups(dimensionKey);
   }
 
   async function refreshHomepage() {
@@ -137,10 +176,20 @@ export function createHomeController(deps: HomeControllerDeps) {
     get belongReady() {
       return homeStore.belongReady;
     },
+    get tagDimensions() {
+      return homeStore.tagDimensions;
+    },
+    get tagGroups() {
+      return homeStore.tagGroups;
+    },
+    get selectedDimensionKey() {
+      return homeStore.selectedDimensionKey;
+    },
     init,
     loadHomepageData,
     refreshHomepage,
     refreshSeriesGroups,
+    selectDimension,
     handleClearHistory,
     handleBelongReady,
     dispose,
