@@ -1,0 +1,120 @@
+//! 首页数据聚合相关的 Tauri command。
+
+use crate::app_state::AppState;
+use siren_core::api::Album;
+use siren_core::homepage::{HistoryEntry, HomepageStatus, SeriesGroup};
+use siren_core::DownloadJobStatus;
+use tauri::State;
+
+/// 获取最新专辑列表。
+///
+/// 从上游 API 获取全量专辑并取前 N 条，附带本地库存增强。
+/// 入参 `limit` 为最多返回的专辑数量；返回值为已经过本地库存增强的专辑列表。
+/// 调用方应把该结果视为展示快照：远端数据或本地库存状态变化后，需要重新调用以获取最新结果。
+#[tauri::command]
+pub async fn get_latest_albums(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<Album>, String> {
+    let albums = state.api.get_albums().await.map_err(|e| e.to_string())?;
+    let enriched = state.local_inventory_service.enrich_albums(albums).await;
+    Ok(enriched.into_iter().take(limit as usize).collect())
+}
+
+/// 按系列分组获取专辑列表。
+///
+/// 从 SQLite 读取 belong 映射，与全量专辑做内存 join 分组。
+/// 无 belong 记录的专辑不参与分组。
+/// 返回值为按系列分组的专辑集合列表，按每组专辑数量降序排列。
+/// 调用方应注意：belong 映射来自本地缓存，若缓存尚未写入则分组结果可能为空。
+#[tauri::command]
+pub async fn get_albums_by_series(state: State<'_, AppState>) -> Result<Vec<SeriesGroup>, String> {
+    let albums = state.api.get_albums().await.map_err(|e| e.to_string())?;
+    let enriched = state.local_inventory_service.enrich_albums(albums).await;
+    let belongs = state.album_metadata_cache.get_all_belongs()?;
+
+    let belong_map: std::collections::HashMap<&str, &str> = belongs
+        .iter()
+        .map(|r| (r.album_cid.as_str(), r.belong.as_str()))
+        .collect();
+
+    let mut groups: std::collections::HashMap<String, Vec<Album>> =
+        std::collections::HashMap::new();
+
+    for album in enriched {
+        let series = belong_map
+            .get(album.cid.as_str())
+            .copied()
+            .unwrap_or("")
+            .to_string();
+        if series.is_empty() {
+            continue;
+        }
+        groups.entry(series).or_default().push(album);
+    }
+
+    let mut result: Vec<SeriesGroup> = groups
+        .into_iter()
+        .map(|(series, albums)| SeriesGroup { series, albums })
+        .collect();
+    result.sort_by(|a, b| b.albums.len().cmp(&a.albums.len()));
+    Ok(result)
+}
+
+/// 获取最近收听历史。
+///
+/// 从 SQLite 按播放时间倒序返回最近 `limit` 条收听记录。
+/// 入参 `limit` 为最多返回的条目数量；返回值为收听历史条目列表。
+/// 该接口只读取已持久化的历史，不会触发任何写入或状态变更。
+#[tauri::command]
+pub async fn get_recent_history(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    state.listening_history.get_recent(limit)
+}
+
+/// 清除所有收听历史，返回删除条数。
+///
+/// 适用于用户手动清空收听历史面板的场景。
+/// 返回值为本次实际删除的记录条数。
+/// 该接口会删除所有历史记录，操作不可逆；调用方应在执行前向用户确认。
+#[tauri::command]
+pub async fn clear_listening_history(state: State<'_, AppState>) -> Result<u32, String> {
+    state.listening_history.clear()
+}
+
+/// 获取首页状态仪表盘聚合数据。
+///
+/// 聚合平台专辑总数、本地已下载曲目数、活跃下载数与已完成下载数，供首页仪表盘展示。
+/// 返回值为 `HomepageStatus` 快照；`local_storage_bytes` 当前固定返回 `0`，后续版本将补充磁盘用量计算。
+/// 该接口会发起一次上游 API 请求与多次本地状态读取，不适合高频轮询。
+#[tauri::command]
+pub async fn get_homepage_status(state: State<'_, AppState>) -> Result<HomepageStatus, String> {
+    let albums = state.api.get_albums().await.map_err(|e| e.to_string())?;
+    let platform_album_count = albums.len() as u32;
+
+    let inventory_snapshot = state.local_inventory_service.snapshot().await;
+    let local_downloaded_count = inventory_snapshot.matched_track_count as u32;
+
+    let download_snapshot = state.download_service.lock().await.snapshot();
+    let active_download_count = download_snapshot
+        .jobs
+        .iter()
+        .filter(|j| matches!(j.status, DownloadJobStatus::Running))
+        .count() as u32;
+    let completed_download_count = download_snapshot
+        .jobs
+        .iter()
+        .filter(|j| matches!(j.status, DownloadJobStatus::Completed))
+        .count() as u32;
+
+    Ok(HomepageStatus {
+        platform_album_count,
+        platform_song_count: 0,
+        local_downloaded_count,
+        local_storage_bytes: 0,
+        active_download_count,
+        completed_download_count,
+    })
+}

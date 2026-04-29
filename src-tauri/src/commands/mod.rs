@@ -4,6 +4,7 @@
 //! command 子模块，是前端通过 Tauri bridge 调用后端能力的主要入口目录。
 
 pub mod downloads;
+pub mod homepage;
 pub mod library;
 pub mod local_inventory;
 pub mod logging;
