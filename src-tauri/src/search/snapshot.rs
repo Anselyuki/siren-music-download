@@ -34,6 +34,9 @@ pub(crate) struct LibrarySearchAlbumRecord {
     pub artist_line_pinyin_initials: Option<String>,
     pub belong_pinyin_full: Option<String>,
     pub belong_pinyin_initials: Option<String>,
+    pub tag_values: Option<String>,
+    pub tag_values_pinyin_full: Option<String>,
+    pub tag_values_pinyin_initials: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,10 +51,14 @@ pub(crate) struct LibrarySearchSongRecord {
     pub song_title_pinyin_initials: Option<String>,
     pub artist_line_pinyin_full: Option<String>,
     pub artist_line_pinyin_initials: Option<String>,
+    pub tag_values: Option<String>,
+    pub tag_values_pinyin_full: Option<String>,
+    pub tag_values_pinyin_initials: Option<String>,
 }
 
 pub(crate) async fn build_library_search_snapshot(
     api: Arc<ApiClient>,
+    tag_registry: crate::tag_registry::TagRegistryService,
     root_output_dir: String,
     inventory_version: String,
 ) -> Result<LibrarySearchSnapshot> {
@@ -71,6 +78,8 @@ pub(crate) async fn build_library_search_snapshot(
             .and_then(|artists| join_artists(artists))
             .or(album_artist_line.clone());
 
+        let album_tag_text = tag_registry.get_all_locale_tag_values_for_album(&album.cid);
+        let album_tag_text_opt = normalize_optional_text(Some(album_tag_text));
         album_records.push(LibrarySearchAlbumRecord {
             album_cid: album.cid.clone(),
             album_title: album.name.clone(),
@@ -83,10 +92,16 @@ pub(crate) async fn build_library_search_snapshot(
             artist_line_pinyin_initials: album_artist_line.as_deref().and_then(to_pinyin_initials),
             belong_pinyin_full: to_full_pinyin(&detail.belong),
             belong_pinyin_initials: to_pinyin_initials(&detail.belong),
+            tag_values_pinyin_full: album_tag_text_opt.as_deref().and_then(to_full_pinyin),
+            tag_values_pinyin_initials: album_tag_text_opt.as_deref().and_then(to_pinyin_initials),
+            tag_values: album_tag_text_opt,
         });
 
         song_records.extend(detail.songs.into_iter().map(|song| {
             let artist_line = join_artists(&song.artists).or_else(|| fallback_artist_line.clone());
+            let song_tag_text =
+                tag_registry.get_all_locale_tag_values_for_song(&song.cid, &album.cid);
+            let song_tag_text_opt = normalize_optional_text(Some(song_tag_text));
             LibrarySearchSongRecord {
                 album_cid: album.cid.clone(),
                 song_cid: song.cid,
@@ -97,6 +112,11 @@ pub(crate) async fn build_library_search_snapshot(
                 song_title_pinyin_full: to_full_pinyin(&song.name),
                 song_title_pinyin_initials: to_pinyin_initials(&song.name),
                 artist_line,
+                tag_values_pinyin_full: song_tag_text_opt.as_deref().and_then(to_full_pinyin),
+                tag_values_pinyin_initials: song_tag_text_opt
+                    .as_deref()
+                    .and_then(to_pinyin_initials),
+                tag_values: song_tag_text_opt,
             }
         }));
     }

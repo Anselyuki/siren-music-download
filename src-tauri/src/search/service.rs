@@ -186,6 +186,7 @@ impl LibrarySearchService {
             let generation = service.start_rebuild(&inventory).await;
             let snapshot_result = build_library_search_snapshot(
                 state.api.clone(),
+                state.tag_registry.clone(),
                 inventory.root_output_dir.clone(),
                 inventory.inventory_version.clone(),
             )
@@ -335,6 +336,9 @@ mod tests {
                 artist_line_pinyin_initials: None,
                 belong_pinyin_full: None,
                 belong_pinyin_initials: None,
+                tag_values: None,
+                tag_values_pinyin_full: None,
+                tag_values_pinyin_initials: None,
             }],
             songs: vec![LibrarySearchSongRecord {
                 album_cid: "album-a".to_string(),
@@ -346,6 +350,9 @@ mod tests {
                 song_title_pinyin_initials: None,
                 artist_line_pinyin_full: None,
                 artist_line_pinyin_initials: None,
+                tag_values: None,
+                tag_values_pinyin_full: None,
+                tag_values_pinyin_initials: None,
             }],
         }
     }
