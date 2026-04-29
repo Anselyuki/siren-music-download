@@ -121,3 +121,31 @@
 - Paraglide runtime 语言切换不会自动触发 Svelte 5 组件重新渲染
 - 必须通过项目侧 `localeState.current`（`$state`）显式建立响应式依赖
 - 高频组件使用聚合 `$derived.by()` 模式，低频面板允许 `{#key localeState.current}` 简化迁移
+
+## 决策 8：Tag Registry 远程注册表 + 本地缓存方案
+
+**背景**：需要为专辑和歌曲附加自定义元数据标签（流派、阵营、时代等），上游 API 不提供此类数据。
+
+**考量**：
+
+- 嵌入二进制：更新 tag 数据需要发版，灵活性差
+- 远程 JSON + 本地缓存：tag 数据独立于应用版本更新，离线时仍可使用缓存
+- 数据库存储：对于只读注册表而言引入不必要的复杂度
+
+**结论**：采用远程 JSON 注册表 + 本地原子文件缓存方案，原因是：
+
+1. tag 数据由 GitHub 托管的 JSON 文件定义，可独立于应用版本更新
+2. 应用启动时异步拉取远程 JSON 并原子写入本地缓存；网络不可达时回退到本地缓存
+3. 注册表包含多 locale 标签（zh-CN / en-US / ja-JP），按用户偏好 locale 解析展示名，支持 locale 回退
+
+**Tag 注入模式**：
+
+- tag 数据在 command 层注入，不存入 API 响应缓存，避免缓存与注册表更新不一致
+- `get_albums`、`get_album_detail`、`get_song_detail`、`get_latest_albums`、`get_albums_by_series_group` 在库存注入后额外注入 tag 数据
+- 歌曲 tag 继承所属专辑 tag 并与自身 tag 合并去重
+
+**搜索索引策略**：
+
+- 搜索索引包含所有 locale 下的 tag 值（不只是当前 locale），确保搜索不受用户语言切换影响
+- tag 值同时生成拼音全拼和首字母变体，与既有拼音召回机制一致
+- tag 命中通过 `matchedFields` 中的 `tagValues` 枚举值表达

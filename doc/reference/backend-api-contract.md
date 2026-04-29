@@ -35,6 +35,9 @@
 - `SongEntry`
 - `SongDetail`
 - `AlbumDetail`
+- `TagEntry`
+- `TagDimensionResolved`
+- `TagGroup`
 - `LibrarySearchScope`
 - `LibrarySearchHitField`
 - `SearchLibraryRequest`
@@ -289,6 +292,22 @@
 - `verifiedTrackCount: number`
 - `currentPath: string | null`
 
+### `TagEntry`
+
+- `dimension: string` — 维度展示名（已本地化）
+- `values: string[]` — 当前维度下的 tag 值列表（已本地化、已去重）
+
+### `TagDimensionResolved`
+
+- `key: string` — 维度唯一键（程序标识符）
+- `label: string` — 当前 locale 下的维度展示名
+
+### `TagGroup`
+
+- `dimensionKey: string` — 维度 key（程序标识符）
+- `value: string` — 当前分组的 tag 值（已本地化）
+- `albums: Album[]` — 命中该 tag 值的专辑列表
+
 ### `Album`
 
 - `cid: string`
@@ -296,6 +315,7 @@
 - `coverUrl: string`
 - `artists: string[]`
 - `download: AlbumDownloadBadge`
+- `tags: TagEntry[]`
 
 ### `SongEntry`
 
@@ -303,6 +323,7 @@
 - `name: string`
 - `artists: string[]`
 - `download: TrackDownloadBadge`
+- `tags: TagEntry[]`
 
 ### `SongDetail`
 
@@ -315,6 +336,7 @@
 - `mvCoverUrl: string | null`
 - `artists: string[]`
 - `download: TrackDownloadBadge`
+- `tags: TagEntry[]`
 
 ### `AlbumDetail`
 
@@ -326,6 +348,7 @@
 - `coverDeUrl: string | null`
 - `artists: string[] | null`
 - `download: AlbumDownloadBadge`
+- `tags: TagEntry[]`
 - `songs: SongEntry[]`
 
 ### `LibrarySearchScope`
@@ -349,11 +372,13 @@
 - `artist`
 - `intro`
 - `belong`
+- `tagValues`
 
 说明：
 
 - `matchedFields` 表达用户可理解的命中来源
 - `intro` / `belong` 辅助字段命中表达已在代码落地
+- `tagValues` 表达 tag 维度值命中，索引包含所有 locale 的 tag 值
 - 拼音召回属于实现增强，不单独暴露为命中字段
 - `lyric` 不属于当前范围；若后续进入 12C，再扩展该枚举
 
@@ -582,6 +607,7 @@
 - `album_title` / `artist` 来自 `get_albums()` 返回的专辑列表
 - `song_title` / `song` 级 `artist` 来自 `get_album_detail()` 的歌曲列表
 - `intro` / `belong` 来自 `get_album_detail()` 的专辑详情字段，当前已进入索引并参与命中表达
+- `tag_values` 来自 Tag Registry，索引所有 locale 下的 tag 值（含拼音变体），搜索不受当前 locale 限制
 - 当前实现继续避免为建索引而对每首歌额外执行 `get_song_detail()`
 
 查询验证规则：
@@ -749,6 +775,32 @@
 | `get_recent_history`         | `limit: u32` | `Vec<HistoryEntry>` | 获取最近收听历史               |
 | `clear_listening_history`    | 无           | `u32`               | 清除所有收听历史，返回删除条数 |
 | `get_homepage_status`        | 无           | `HomepageStatus`    | 获取首页状态仪表盘数据         |
+
+### Tag Registry 命令
+
+| Command                       | 参数                   | 返回值                      | 说明                                                  |
+| ----------------------------- | ---------------------- | --------------------------- | ----------------------------------------------------- |
+| `get_tag_dimensions`          | 无                     | `Vec<TagDimensionResolved>` | 获取当前可用的 tag 维度列表（已按偏好 locale 本地化） |
+| `get_albums_by_tag_dimension` | `dimensionKey: string` | `Vec<TagGroup>`             | 按指定维度聚合专辑，返回按 tag 值分组的专辑列表       |
+
+行为说明：
+
+- 两个命令均为只读命令，locale 从当前用户偏好自动读取，不由前端传参
+- `get_tag_dimensions` 在 tag registry 未加载或为空时返回空数组
+- `get_albums_by_tag_dimension` 返回的专辑已注入库存 badge 和 tag 数据，按分组内专辑数降序排列
+- tag 数据来源为远程 JSON 注册表，应用启动时异步加载并缓存到本地
+
+Tag 注入说明：
+
+- `get_albums`、`get_album_detail`、`get_song_detail`、`get_latest_albums`、`get_albums_by_series_group` 在库存注入后额外注入 tag 数据
+- 歌曲 tag 继承所属专辑 tag 并与自身 tag 合并去重
+- tag 数据在 command 层注入，不存入 API 响应缓存
+
+搜索索引增强：
+
+- 搜索索引新增 `tag_values`、`tag_values_pinyin_full`、`tag_values_pinyin_initials` 字段
+- tag 值索引包含所有 locale 的值，搜索不受当前 locale 限制
+- tag 命中通过 `matchedFields` 中的 `tagValues` 枚举值表达
 
 ## Events
 
