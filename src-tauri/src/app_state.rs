@@ -795,15 +795,15 @@ pub fn spawn_belong_warmup(app_handle: tauri::AppHandle, state: &AppState) {
 /// 启动 tag registry 远程同步后台任务。
 ///
 /// 在应用启动后异步从远程拉取最新 tag JSON，与本地版本比对后按需替换。
+/// 若注册表发生更新且当前已有库存快照，自动触发搜索索引重建以同步新 tag 数据。
 /// 网络失败时静默使用本地缓存，不阻塞应用启动。
 pub fn spawn_tag_registry_sync(state: &AppState) {
-    let tag_registry = state.tag_registry.clone();
-    let api = state.api.clone();
-    let log_center = state.log_center.clone();
+    let state = state.clone();
 
     tauri::async_runtime::spawn(async move {
-        let result: Result<(), anyhow::Error> = async {
-            let response_bytes = api
+        let updated = async {
+            let response_bytes = state
+                .api
                 .download_bytes(crate::tag_registry::REMOTE_URL, |_, _| {})
                 .await?;
             let new_registry: crate::tag_registry::TagRegistry =
@@ -818,26 +818,35 @@ pub fn spawn_tag_registry_sync(state: &AppState) {
                 );
             }
 
-            let current_updated_at = tag_registry.current_updated_at();
+            let current_updated_at = state.tag_registry.current_updated_at();
             if new_registry.updated_at == current_updated_at && !current_updated_at.is_empty() {
-                return Ok(());
+                return Ok(false);
             }
 
-            tag_registry.update(new_registry)?;
-            Ok(())
+            state.tag_registry.update(new_registry)?;
+            Ok::<bool, anyhow::Error>(true)
         }
         .await;
 
-        if let Err(error) = result {
-            log_center.record(
-                LogPayload::new(
-                    LogLevel::Warn,
-                    "tag-registry",
-                    "tag_registry.sync_failed",
-                    "Failed to sync tag registry from remote",
-                )
-                .details(error.to_string()),
-            );
+        match updated {
+            Ok(true) => {
+                let inventory = state.local_inventory_service.snapshot().await;
+                state
+                    .library_search_service
+                    .schedule_rebuild(state.clone(), inventory);
+            }
+            Ok(false) => {}
+            Err(error) => {
+                state.log_center.record(
+                    LogPayload::new(
+                        LogLevel::Warn,
+                        "tag-registry",
+                        "tag_registry.sync_failed",
+                        "Failed to sync tag registry from remote",
+                    )
+                    .details(error.to_string()),
+                );
+            }
         }
     });
 }
