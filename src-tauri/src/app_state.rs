@@ -701,7 +701,7 @@ pub fn spawn_belong_warmup(app_handle: tauri::AppHandle, state: &AppState) {
     let cache = state.album_metadata_cache.clone();
     let log_center = state.log_center.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let albums = match api.get_albums().await {
             Ok(albums) => albums,
             Err(e) => {
