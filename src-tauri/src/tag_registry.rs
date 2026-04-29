@@ -93,7 +93,7 @@ pub(crate) struct LocalizedValue(pub HashMap<String, String>);
 ///
 /// `key` 为维度唯一标识符，`label` 为当前 locale 下的展示名（经过 locale 回退策略解析）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct TagDimensionResolved {
+pub struct TagDimensionResolved {
     /// 维度唯一键。
     pub key: String,
     /// 当前 locale 下的维度展示名。

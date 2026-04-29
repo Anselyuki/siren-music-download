@@ -40,8 +40,8 @@
 
 use anyhow::Context;
 use siren_music_download::{
-    commands, initialize_download_bridge, spawn_belong_warmup, spawn_inventory_scan, AppState,
-    LogLevel, LogPayload,
+    commands, initialize_download_bridge, spawn_belong_warmup, spawn_inventory_scan,
+    spawn_tag_registry_sync, AppState, LogLevel, LogPayload,
 };
 use tauri::{LogicalSize, Manager, RunEvent, WebviewWindow};
 
@@ -131,6 +131,7 @@ fn main() {
                 None,
             );
             spawn_belong_warmup(app.handle().clone(), &state);
+            spawn_tag_registry_sync(&state);
             app.manage(state);
 
             #[cfg(debug_assertions)]
@@ -183,6 +184,8 @@ fn main() {
             commands::homepage::get_recent_history,
             commands::homepage::clear_listening_history,
             commands::homepage::get_homepage_status,
+            commands::tag_registry::get_tag_dimensions,
+            commands::tag_registry::get_albums_by_tag_dimension,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

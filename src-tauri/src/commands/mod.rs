@@ -11,3 +11,4 @@ pub mod logging;
 pub mod playback;
 pub mod preferences;
 pub mod search;
+pub mod tag_registry;

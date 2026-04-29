@@ -1,0 +1,66 @@
+//! 自定义元数据 Tag Registry 相关的 Tauri command。
+
+use crate::app_state::AppState;
+use siren_core::api::Album;
+use siren_core::homepage::TagGroup;
+use tauri::State;
+
+/// 获取当前可用的 tag 维度列表。
+///
+/// 返回值为已本地化的维度列表；若 tag registry 为空或未加载，返回空数组。
+#[tauri::command]
+pub fn get_tag_dimensions(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::tag_registry::TagDimensionResolved>, String> {
+    let locale = state.preferences().locale;
+    Ok(state.tag_registry.get_dimensions(locale))
+}
+
+/// 按指定 tag 维度聚合专辑，用于分组浏览。
+///
+/// 入参 `dimension_key` 为维度程序标识符（如 "faction"、"genre"）。
+/// 返回值为按 tag 值分组的专辑列表，每组内的 `value` 已本地化。
+#[tauri::command]
+pub async fn get_albums_by_tag_dimension(
+    state: State<'_, AppState>,
+    dimension_key: String,
+) -> Result<Vec<TagGroup>, String> {
+    let locale = state.preferences().locale;
+    let value_to_cids = state
+        .tag_registry
+        .get_album_cids_by_dimension(&dimension_key, locale);
+
+    if value_to_cids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let albums = state.api.get_albums().await.map_err(|e| e.to_string())?;
+    let mut enriched = state.local_inventory_service.enrich_albums(albums).await;
+    for album in &mut enriched {
+        album.tags = state.tag_registry.get_album_tags(&album.cid, locale);
+    }
+
+    let album_map: std::collections::HashMap<&str, &Album> =
+        enriched.iter().map(|a| (a.cid.as_str(), a)).collect();
+
+    let mut groups: Vec<TagGroup> = value_to_cids
+        .into_iter()
+        .filter_map(|(value, cids)| {
+            let albums: Vec<Album> = cids
+                .iter()
+                .filter_map(|cid| album_map.get(cid.as_str()).copied().cloned())
+                .collect();
+            if albums.is_empty() {
+                return None;
+            }
+            Some(TagGroup {
+                dimension_key: dimension_key.clone(),
+                value,
+                albums,
+            })
+        })
+        .collect();
+
+    groups.sort_by(|a, b| b.albums.len().cmp(&a.albums.len()));
+    Ok(groups)
+}
